@@ -38,7 +38,7 @@
 // 强制使用 HSPI (SPI3) 避免 FSPI (SPI2) 与 PSRAM OPI 冲突导致 StoreProhibited 崩溃
 #define USE_HSPI_PORT
 
-// SPI 频率
-#define SPI_FREQUENCY  40000000
+// SPI 频率 (80MHz = ESP32-S3 SPI 硬件上限; 若花屏/乱码回退 40000000 或试 64000000)
+#define SPI_FREQUENCY  80000000
 #define SPI_READ_FREQUENCY  6000000
 #define SPI_TOUCH_FREQUENCY  2500000

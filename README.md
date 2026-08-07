@@ -11,12 +11,19 @@
 ## 功能特性
 
 - **BLE 连接 FarDriver 控制器** -- 自动扫描并连接 (服务 UUID: 0xFFE0, 特性 UUID: 0xFFEC)
-- **TFT 实时显示** -- 2.8 寸 320x240 彩屏，使用 SPI + Sprite 双缓冲刷新
-- **电容触摸交互** -- FT6336G I2C 触摸控制器，支持触摸切换页面
+- **GFX 直绘 UI** -- 基于 TFT_eSPI 直接渲染 (无 LVGL 依赖)，四页面: 扫描 / 设备列表 / 主仪表盘 / 信息
+- **PSRAM Sprite 仪表盘** -- 仪表背景渲染到 PSRAM Sprite 一次，指针移动仅推送局部小区域，刷新流畅且无指针残影
+- **电容触摸交互** -- FT6336G I2C 触摸控制器，按下反馈 + 防抖 (松开去抖 / 移动容差 / 触发冷却)
 - **多页面仪表盘** -- 主页面 (速度/功率/RPM 等核心数据) + 信息页面 (温度/电压等详细信息)
 - **自动重连** -- BLE 断开后自动重启扫描
 - **Keep-alive 心跳** -- 每 2 秒发送心跳包保持连接
 - **串口调试输出** -- 可通过串口查看实时解析数据
+
+## UI 设计
+
+- **配色** -- 深黑背景 + 渐变仪表色带 (蓝→青→绿→黄→橙→红)，数据按类别着色
+- **主仪表盘** -- 弧形仪表 (色带半径 72..84) + 指针 (半径 58..88, 白色主体 + 红色描边 + 红色针尖三角越过色带); 中央速度整数居中显示; 油门/电量进度条; kW 值取绝对值显示 (负=回充绿色, 正=红色)
+- **页面布局** -- 无顶部品牌栏; 仪表盘经右下角按钮进信息页; 列表页 Rescan/Connect 按钮; 设备列表自动选中第一台
 
 ## 硬件要求
 
@@ -118,6 +125,11 @@ Arduino/libraries/TFT_eSPI/
 #include <Setup400_EKSR.h>
 ```
 
+### SPI 频率与 PSRAM 冲突规避
+
+- **SPI 频率 80MHz** -- `Setup400_EKSR.h` 中 `SPI_FREQUENCY 80000000` (ESP32-S3 SPI 硬件上限)；若实测花屏/乱码，回退 `40000000` 或 `64000000`
+- **`USE_HSPI_PORT` 必须保留** -- ESP32-S3 开启 OPI PSRAM 后，强制 TFT 走 SPI3 (HSPI) 以避开 FSPI (SPI2) 与 OPI PSRAM 的冲突，否则会 StoreProhibited 崩溃
+
 ## 引脚说明
 
 ### TFT SPI 引脚
@@ -191,7 +203,7 @@ Arduino/libraries/TFT_eSPI/
 | Board | ESP32S3 Dev Module | 选择 ESP32-S3 开发板 |
 | USB CDC On Boot | Enabled | 串口输出需要 |
 | Flash Size | 8MB | 根据实际板子调整 (常见: 4MB / 8MB / 16MB) |
-| PSRAM | OPI PSRAM | 如果板子带 PSRAM 则开启; 没有则选 Disabled |
+| PSRAM | OPI PSRAM | 必须开启 (仪表盘 Sprite 约 75KB 依赖 PSRAM; 未开启自动回退整表重绘) |
 | Upload Speed | 921600 | 上传波特率，越快越好 |
 | CPU Frequency | 240 MHz | 最高频率 |
 | Arduino Runs On | Core 1 | BLE 运行在 Core 0 |
@@ -202,5 +214,9 @@ Arduino/libraries/TFT_eSPI/
 - **BLE 需要先配对 FarDriver 控制器** -- 部分 FarDriver 控制器需要先通过手机 App 配对后才允许 BLE 连接; 也有些控制器支持直接扫描连接，请根据实际情况操作。
 - **运行时数据映射可能需要调整** -- `message_handler` 中的地址映射是基于 EKSR_Instrument 分析的候选值，不同型号/固件版本的 FarDriver 控制器可能有不同的数据布局，需要实测验证。
 - **message_handler 中的地址映射是候选值** -- 当前标注为"候选"的映射需通过串口调试输出与实际控制器数据进行比对后确认。
-- **NimBLE 与 WiFi 不可同时使用** -- ESP32 的 BLE 和 WiFi 共用 2.4GHz 射频，本项目仅使用 BLE，不需要 WiFi。
+- **NimBLE 与 WiFi 不可同时使用** -- ESP32 的 BLE 和 WiFi 共用 2.4GHz 射频，本项目仅使用 BLE，`setup()` 中已 `WiFi.mode(WIFI_OFF)` 关闭 WiFi 射频（省电并减少频段干扰）。
 - **BLE 连接距离** -- 有效距离通常在 10 米以内，实际使用中建议保持仪表盘与控制器之间无金属遮挡。
+- **必须开启 OPI PSRAM** -- 仪表盘 Sprite (200x192, 约 75KB) 依赖 PSRAM 分配；未开启时自动回退为整表重绘（功能可用但刷新较慢）。在 Arduino IDE 工具菜单选择 PSRAM = OPI PSRAM。
+- **`USE_HSPI_PORT` 不可移除** -- 这是 OPI PSRAM 与 TFT 共存的关键配置（见上节）。
+- **SPI 80MHz 花屏处理** -- 若出现花屏/随机横线，将 `SPI_FREQUENCY` 改回 40MHz 或 64MHz。
+- **触摸与绘制并发安全** -- 所有绘制 API 由全局递归互斥锁保护，`uiScanAdd` 等可安全地从其他任务调用；触摸读取永远在 SPI 事务之外。

@@ -13,6 +13,7 @@
 #include "ui_gfx.h"
 
 #include <Preferences.h>
+#include <WiFi.h>          // 仅用于关闭 WiFi 射频 (本项目只用 BLE)
 #include <TFT_eSPI.h>
 
 // 全局对象
@@ -40,6 +41,17 @@ static void throttle_save_cal(void) {
 
 static float throttle_to_pct(uint16_t raw) {
     bool changed = false;
+
+    /* 校准值合理性保护: NVS 存了异常极值(如调试时写入) → 自动重置重新学习 */
+    if (throttle_max_adc > 0 && throttle_max_adc < throttle_min_adc) {
+        throttle_min_adc = raw; throttle_max_adc = raw; throttle_save_cal();
+    }
+    uint16_t savedRange = throttle_max_adc - throttle_min_adc;
+    if (savedRange > 8000) {   /* 范围过大 = 校准值异常, 重置 */
+        throttle_min_adc = raw; throttle_max_adc = raw; throttle_save_cal();
+        return 0;
+    }
+
     // 最小值: 记录松开油门时的最小 ADC
     if (raw < throttle_min_adc && raw > 0) { throttle_min_adc = raw; changed = true; }
     // 最大值: 记录拧到底时的最大 ADC
@@ -257,6 +269,8 @@ void message_handler(uint8_t *pData)
 //  填充数据并更新当前显示页面 (非活动页面不更新, 减少刷新开销)
 // ============================================================
 static void update_ui_data(void) {
+    /* 数据解耦: ctr_data 由 BLE 回调(Core 0)写入; 本函数在渲染核(Core 1)先做值快照,
+     * 渲染全程用本地副本 DashData d, 避免渲染期间持续跨核读取 → 消除数据迁移延迟 */
     DashData d;
     d.speed    = ctr_data.speed;
     d.volt     = ctr_data.voltage;
@@ -444,6 +458,10 @@ void setup()
     delay(500);
     Serial.println(F("FarDriver BLE Instrument (GFX)"));
 
+    /* 关闭 WiFi 射频: 本项目只用 BLE, 关 WiFi 可省电并减少 2.4G 频段干扰
+     * (ESP32-S3 WiFi/BLE 共用射频, WIFI_OFF 不影响 NimBLE 的 BLE 功能) */
+    WiFi.mode(WIFI_OFF);
+
     preferences.begin("fardriver", false);
     throttle_load_cal();   // 加载上次保存的油门校准值
 
@@ -486,6 +504,8 @@ void setup()
 // ============================================================
 void loop()
 {
+    /* 核心绑定: loop 运行于 Core 1 (APP_CPU); 触摸(display_loop)与渲染(update_ui_data)
+     * 同核串行 → 无跨核竞态、无数据迁移; BLE 协议栈与 diagTask 运行于 Core 0 */
     g_loop_cnt++;                    // 主循环心跳
     static uint32_t lastDataUpdate = 0;
 

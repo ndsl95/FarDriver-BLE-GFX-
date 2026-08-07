@@ -117,12 +117,7 @@ static void fireBtn(int id){
     }
 }
 
-/* ---------- 状态栏(每页共用) ---------- */
-static void statusBar(void){
-    ptext("FarDriver", 8, 4, ORNG, 2);
-    tft.fillCircle(198, 12, 4, MAG);
-    ptext("BLE", 208, 6, MAG, 1);
-}
+/* 所有页面顶部不再显示状态栏 (FarDriver 品牌 + BLE 指示) */
 
 /* ================= 页面1: 扫描等待 ================= */
 static uint32_t spinT = 0; static int16_t spinA = 0;
@@ -137,9 +132,7 @@ static void arcSeg(int cx,int cy,int r,int a0,int a1,uint16_t c){
 void uiShowScan(void){
     page=P_SCAN; uiLock(); tft.startWrite();
     tft.fillScreen(BLK);
-    statusBar();
-    centerTxt("FarDriver", 44, ORNG, 3);
-    centerTxt("Scanning BLE...", 80, WHT, 2);
+    centerTxt("Scanning BLE...", 52, WHT, 2);
     for(int i=0;i<7;i++) arcSeg(120,160,38+i,0,360,TRK);   // 轨道画一次
     centerTxt("Looking for controller", 224, GRY, 2);
     drawBtn(B_CANCEL,false);
@@ -228,8 +221,6 @@ void uiScanAdd(const char *n, int8_t r){
 void uiShowList(void){
     page=P_LIST; uiLock(); tft.startWrite();
     tft.fillScreen(BLK);
-    statusBar();
-    ptext("FarDriver", 10, 28, ORNG, 3);
     drawBtn(B_RESCAN,false);
     tft.fillRect(8,58,224,2,TRK);
     char f[20]; sprintf(f,"found %d devices",devCnt);
@@ -245,44 +236,144 @@ void uiShowList(void){
 /* ================= 页面3: 仪表 ================= */
 static int16_t ptrA = -1;
 static char cSpd[12],cV[10],cA[10],cKW[10],cCtr[10],cMot[10],cGear[8],cThr[8],cBat[8];
+static uint16_t cKwCol = 0xFFFF;   // kW 颜色缓存 (负=绿, 正=红)
 static uint8_t lastThr=255,lastBat=255;
 static int spdMaxW = 0;  // 速度文本历史最大宽度 (防止位数减少时残影)
-static uint32_t lastSlowMs = 0;  // 慢字段刷新节流 (SPI 干扰缓解: 拧转把时减半写屏活动)
+/* 分级刷新率 (可配置, 单位 ms): 按字段感知重要性分档, 降低 SPI 写屏活动量
+ * 快档 = 速度/指针/油门 (由 update_ui_data 的 100ms 节流, 转把响应要求快)
+ * 中档 = 电压/电流/功率 (关注较高)
+ * 慢档 = 温度/档位/电量 (变化缓慢) */
+#define DASH_MID_MS   200
+#define DASH_SLOW_MS  1000
+static uint32_t lastMidMs = 0;   // 中档节流时间戳
+static uint32_t lastSlowMs = 0;  // 慢档节流时间戳
 
-static void gaugeStatic(void){
-    const uint16_t cols[8]={BLUE,CYAN,tft.color565(47,217,128),
-        tft.color565(126,211,33),YEL,ORNG,
-        tft.color565(255,106,0),RED};
-    for(int s=0;s<8;s++){                       // 渐变色带,只画一次
-        int a0=135+s*34+2, a1=135+(s+1)*34-2; if(a1>405)a1=405;
-        for(int r=74;r<=80;r++) arcSeg(120,112,r,a0,a1,cols[s]);
+/* 仪表渐变色带 (弧段颜色): redrawGauge 画弧用 */
+static const uint16_t gaugeCols[8]={BLUE,CYAN,tft.color565(47,217,128),
+    tft.color565(126,211,33),YEL,ORNG,
+    tft.color565(255,106,0),RED};
+/* 仪表几何: 圆心(120,100) 顶部无状态栏; 色带 72..84; 指针 58..88 (针尖越过色带外缘) */
+#define GAUGE_CX 120
+#define GAUGE_CY 100
+#define BAND_R0 72
+#define BAND_R1 84
+#define PTR_R0  58
+#define PTR_R1  88
+#define TIP_R   83   // 针尖三角底边半径 (83→88 全部红色)
+static void drawPtr(int ang,uint16_t c){
+    float rd=ang*M_PI/180;
+    float c0=cosf(rd), s0=sinf(rd);
+    int x0=GAUGE_CX+PTR_R0*c0, y0=GAUGE_CY+PTR_R0*s0;
+    int x1=GAUGE_CX+PTR_R1*c0, y1=GAUGE_CY+PTR_R1*s0;
+    /* 红色描边 (宽5) + 白色主体 (宽3) */
+    tft.drawWideLine(x0,y0,x1,y1,5.0f,RED);
+    tft.drawWideLine(x0,y0,x1,y1,3.0f,WHT);
+    /* 针尖三角 (TIP_R→PTR_R1) 全部红色 */
+    float bx=GAUGE_CX+TIP_R*c0, by=GAUGE_CY+TIP_R*s0;
+    float px=-s0, py=c0, hw=4.5f;
+    tft.fillTriangle(x1,y1,
+                     (int)(bx+hw*px),(int)(by+hw*py),
+                     (int)(bx-hw*px),(int)(by-hw*py), RED);
+}
+/* ---------- 仪表背景 Sprite (PSRAM 缓冲) ----------
+ * 背景(色带+刻度+km/h)只渲染一次到 PSRAM Sprite;
+ * 指针移动时仅 push 旧指针的小包围盒(从背景恢复) + 画新指针, 无整表重绘 */
+#define GX 20
+#define GY 4
+#define GW 200
+#define GH 192
+static TFT_eSprite gaugeBg = TFT_eSprite(&tft);
+static bool gaugeBgReady = false;
+
+static void arcSegSP(TFT_eSprite &sp,int cx,int cy,int r,int a0,int a1,uint16_t c){
+    float px=0,py=0;
+    for(int a=a0;a<=a1;a+=6){
+        float rd=a*M_PI/180, x=cx+r*cosf(rd), y=cy+r*sinf(rd);
+        if(a>a0) sp.drawLine((int)px,(int)py,(int)x,(int)y,c);
+        px=x; py=y;
     }
-    for(int a=135;a<=405;a+=9){                 // 刻度,只画一次
+}
+static void gaugeBgBuild(void){
+    if(gaugeBgReady) return;
+    gaugeBg.setColorDepth(16);
+    if(!gaugeBg.createSprite(GW, GH)) return;   // ESP32 有 PSRAM 时自动用 PSRAM
+    gaugeBg.fillSprite(BLK);
+    const int cx=GW/2, cy=GH/2;                 // sprite 内圆心 = 屏幕(120,100) - 偏移
+    for(int s=0;s<8;s++){
+        int a0=135+s*34+2, a1=135+(s+1)*34-2; if(a1>405)a1=405;
+        for(int r=BAND_R0;r<=BAND_R1;r++) arcSegSP(gaugeBg,cx,cy,r,a0,a1,gaugeCols[s]);
+    }
+    for(int a=135;a<=405;a+=9){
         bool mj=((a-135)%27==0);
         float rd=a*M_PI/180;
         int r1=mj?62:66, r2=70;
-        tft.drawLine(120+r1*cosf(rd),112+r1*sinf(rd),
-                     120+r2*cosf(rd),120*0+112+r2*sinf(rd), mj?WHT:GRY);
+        gaugeBg.drawLine(cx+r1*cosf(rd),cy+r1*sinf(rd),
+                         cx+r2*cosf(rd),cy+r2*sinf(rd), mj?WHT:GRY);
     }
-    centerTxt("km/h",132,GRY,2);
+    gaugeBg.setTextColor(GRY); gaugeBg.setTextSize(2);
+    gaugeBg.setCursor(GAUGE_CX-GX-tw("km/h",2)/2, 120-GY);   // km/h 随仪表上移
+    gaugeBg.print("km/h");
+    gaugeBgReady = true;
 }
-static void drawPtr(int ang,uint16_t c){
+/* 从背景 sprite 恢复指针旧位置(小包围盒), 覆盖旧指针 */
+static void erasePtr(int ang){
     float rd=ang*M_PI/180;
-    // 用 drawWideLine 画粗指针 (3像素宽, 视觉更清晰)
-    tft.drawWideLine(120+58*cosf(rd),112+58*sinf(rd),
-                     120+82*cosf(rd),112+82*sinf(rd),3.0f,c);
+    int x0=GAUGE_CX+PTR_R0*cosf(rd), y0=GAUGE_CY+PTR_R0*sinf(rd);
+    int x1=GAUGE_CX+PTR_R1*cosf(rd), y1=GAUGE_CY+PTR_R1*sinf(rd);
+    int bx0=(x0<x1?x0:x1)-6, bx1=(x0>x1?x0:x1)+6;   // ±6: 覆盖红描边5px+针尖三角
+    int by0=(y0<y1?y0:y1)-6, by1=(y0>y1?y0:y1)+6;
+    if(bx0<GX) bx0=GX; if(bx1>GX+GW-1) bx1=GX+GW-1;
+    if(by0<GY) by0=GY; if(by1>GY+GH-1) by1=GY+GH-1;
+    if(bx1<bx0 || by1<by0) return;
+    gaugeBg.pushSprite(bx0, by0, bx0-GX, by0-GY, bx1-bx0+1, by1-by0+1);
+}
+/* Sprite 不可用时的后备: 黑线擦旧指针 → 重绘色带+刻度+km/h → 画新指针 */
+static void redrawGauge(int oldAng, int ptrAng){
+    if(oldAng>=0){
+        float rd=oldAng*M_PI/180;
+        float c0=cosf(rd), s0=sinf(rd);
+        /* 黑线覆盖旧指针 (宽6: 盖红边5px+白芯) */
+        tft.drawWideLine(GAUGE_CX+PTR_R0*c0,GAUGE_CY+PTR_R0*s0, GAUGE_CX+PTR_R1*c0,GAUGE_CY+PTR_R1*s0, 6.0f, BLK);
+        /* 针尖三角黑覆盖 */
+        float bx=GAUGE_CX+TIP_R*c0, by=GAUGE_CY+TIP_R*s0;
+        float px=-s0, py=c0, hw=4.5f;
+        tft.fillTriangle(GAUGE_CX+PTR_R1*c0,GAUGE_CY+PTR_R1*s0,
+                         (int)(bx+hw*px),(int)(by+hw*py),
+                         (int)(bx-hw*px),(int)(by-hw*py), BLK);
+        /* 指针可能扫过速度数字区, 重画数字恢复 (居中) */
+        if(cSpd[0]!=0xFF){
+            tft.fillRect(GAUGE_CX-spdMaxW/2, 84, spdMaxW, 34, BLK);
+            ptext(cSpd, GAUGE_CX-tw(cSpd,4)/2, 86, WHT, 4);
+        }
+    }
+    for(int s=0;s<8;s++){                       // 渐变色带
+        int a0=135+s*34+2, a1=135+(s+1)*34-2; if(a1>405)a1=405;
+        for(int r=BAND_R0;r<=BAND_R1;r++) arcSeg(GAUGE_CX,GAUGE_CY,r,a0,a1,gaugeCols[s]);
+    }
+    for(int a=135;a<=405;a+=9){                 // 刻度
+        bool mj=((a-135)%27==0);
+        float rd=a*M_PI/180;
+        int r1=mj?62:66, r2=70;
+        tft.drawLine(GAUGE_CX+r1*cosf(rd),GAUGE_CY+r1*sinf(rd),
+                     GAUGE_CX+r2*cosf(rd),GAUGE_CY+r2*sinf(rd), mj?WHT:GRY);
+    }
+    centerTxt("km/h",120,GRY,2);
+    drawPtr(ptrAng,WHT);
 }
 void uiShowDash(void){
     page=P_DASH; uiLock(); tft.startWrite();
     tft.fillScreen(BLK);
-    statusBar(); gaugeStatic();
+    /* 仪表页无顶部状态栏, 仪表整体上移 */
+    gaugeBgBuild();
+    if(gaugeBgReady){ gaugeBg.pushSprite(GX,GY); drawPtr(135, WHT); }
+    else redrawGauge(-1, 135);   // Sprite 不可用时后备
     /* 静态标签 (整体上移20px, 为底部按钮腾出空间) */
     ptext("V",26,184,RED,2);   ptext("A",26,202,CYAN,2);  ptext("kW",26,220,BLUE,2);
     ptext("Ctr",128,184,ORNG,2); ptext("Mot",128,202,YEL,2); ptext("Gear",128,220,GRN,2);
     ptext("Thr",10,240,WHT,2); ptext("Bat",10,260,WHT,2);
-    tft.fillRect(46,242,146,12,TRK); tft.fillRect(46,262,146,12,TRK);
+    tft.fillRect(46,242,124,12,TRK); tft.fillRect(46,262,124,12,TRK);
     drawBtn(B_DIS,false); drawBtn(B_INFO,false);
-    ptrA=-1; memset(cSpd,0xFF,sizeof(cSpd));   /* 强制首帧全画 */
+    ptrA=135; memset(cSpd,0xFF,sizeof(cSpd));   /* 强制首帧全画 */
     spdMaxW = 0;  // 重置速度最大宽度追踪
     memset(cV,0xFF,sizeof(cV)); memset(cA,0xFF,sizeof(cA)); memset(cKW,0xFF,sizeof(cKW));
     memset(cCtr,0xFF,sizeof(cCtr)); memset(cMot,0xFF,sizeof(cMot));
@@ -293,31 +384,61 @@ void uiShowDash(void){
 void uiDashUpdate(const DashData *d){
     uiLock(); tft.startWrite();
     char s[12];
-    /* 快字段: 速度数字 + 指针 (用户核心感知, 保持 100ms 流畅) */
-    sprintf(s,"%.1f",d->speed);
-    { int w = tw(s,4); if(w>spdMaxW) spdMaxW=w; }  // 追踪速度文本历史最大宽度
-    fieldR(192,96,spdMaxW,34,s,WHT,4,cSpd);   // 动态宽度, 防止位数减少时残影
-    int ang=135+(int)((d->speed>80?80:d->speed)/80.0f*270);
-    if(ang!=ptrA){ if(ptrA>=0) drawPtr(ptrA,BLK); drawPtr(ang,WHT); ptrA=ang; }
+    bool first = (cSpd[0] == 0xFF);   // 首帧强制全画 (页面切换后不留黑区)
 
-    /* 慢字段: 300ms 节流 — 拧转把时 SPI 高频写屏(电磁干扰)导致触摸芯片报伪点,
-     * 降级刷新频率可把 SPI 活动量降到约 1/3, 大幅缩短干扰窗口
-     * (首帧 cSpd=0xFF 时强制全画, 页面切换后不留黑区) */
-    if(cSpd[0]==0xFF || millis()-lastSlowMs >= 300){
-        lastSlowMs = millis();
+    /* ---- 快档 (100ms): 速度数字 + 指针 + 油门 (用户核心感知, 转把响应要求快) ---- */
+    sprintf(s,"%.0f",d->speed);                       // 速度整数显示
+    { int w = tw(s,4); if(w>spdMaxW) spdMaxW=w; }  // 追踪速度文本历史最大宽度
+    if(strcmp(cSpd,s)!=0 || first){                // 值变化才重画 (居中显示)
+        strcpy(cSpd,s);
+        int w = tw(s,4);
+        tft.fillRect(GAUGE_CX-spdMaxW/2, 84, spdMaxW, 34, BLK);   // 屏幕 (以仪表中心居中)
+        ptext(s, GAUGE_CX-w/2, 86, WHT, 4);
+        if(gaugeBgReady){                          // 同步进背景 Sprite: 指针擦除时可从背景恢复
+            gaugeBg.fillRect(GAUGE_CX-GX-spdMaxW/2, 84-GY, spdMaxW, 34, BLK);
+            gaugeBg.setTextColor(WHT); gaugeBg.setTextSize(4);
+            gaugeBg.setCursor(GAUGE_CX-GX-w/2, 86-GY);
+            gaugeBg.print(s);
+        }
+    }
+    int ang=135+(int)((d->speed>80?80:d->speed)/80.0f*270);
+    if(ang!=ptrA){
+        if(gaugeBgReady){ if(ptrA>=0) erasePtr(ptrA); drawPtr(ang,WHT); }
+        else redrawGauge(ptrA, ang);   // 后备: 黑线擦+整表重绘
+        ptrA=ang;
+    }
+    sprintf(s,"%d%%",d->thr);  fieldR(232,240,56,16,s,WHT,2,cThr);   // 油门文本 (清56px, 覆盖100%)
+    if(d->thr!=lastThr){ lastThr=d->thr;                            // 油门 slider (缩短到46..170, 不遮文本)
+        tft.fillRect(46,242,124,12,TRK); tft.fillRect(46,242,124*d->thr/100,12,ORNG); }
+
+    /* ---- 中档 (200ms): 电压 / 电流 / 功率 ---- */
+    if(first || millis()-lastMidMs >= DASH_MID_MS){
+        lastMidMs = millis();
         sprintf(s,"%.1f",d->volt);  fieldR(110,184,52,16,s,WHT,2,cV);
-        sprintf(s,"%.1f",d->curr);  fieldR(110,202,52,16,s,WHT,2,cA);
-        sprintf(s,"%.2f",d->power); fieldR(110,220,52,16,s,WHT,2,cKW);
+        sprintf(s,"%.1f",d->curr);  fieldR(110,202,72,16,s,WHT,2,cA);   // 72: 覆盖 3 位数母线电流 (-300.0)
+        /* kW: 绝对值去正负号; 负(回充)=绿色, 正=红色 */
+        {
+            float pw = d->power < 0 ? -d->power : d->power;
+            sprintf(s,"%.2f",pw);
+            uint16_t pwCol = (d->power < 0) ? GRN : RED;
+            if(strcmp(cKW,s)!=0 || cKwCol != pwCol){   // 字符串或颜色变化都重画
+                strcpy(cKW,s); cKwCol = pwCol;
+                tft.fillRect(50,220,60,16,BLK);
+                ptext(s, 110-tw(s,2), 221, pwCol, 2);
+            }
+        }
+    }
+
+    /* ---- 慢档 (1000ms): 温度 / 档位 / 电量 (变化缓慢) ---- */
+    if(first || millis()-lastSlowMs >= DASH_SLOW_MS){
+        lastSlowMs = millis();
         sprintf(s,"%dC",d->ctr);    fieldR(232,184,52,16,s,WHT,2,cCtr);
         sprintf(s,"%dC",d->mot);    fieldR(232,202,52,16,s,WHT,2,cMot);
         sprintf(s,"%d",d->gear);    fieldR(232,220,52,16,s,WHT,2,cGear);
-        sprintf(s,"%d%%",d->thr);   fieldR(232,240,40,16,s,WHT,2,cThr);
-        sprintf(s,"%d%%",d->bat);   fieldR(232,260,40,16,s,WHT,2,cBat);
-        if(d->thr!=lastThr){ lastThr=d->thr;
-            tft.fillRect(46,242,146,12,TRK); tft.fillRect(46,242,146*d->thr/100,12,ORNG); }
-        if(d->bat!=lastBat){ lastBat=d->bat;
-            tft.fillRect(46,262,146,12,TRK);
-            tft.fillRect(46,262,146*d->bat/100,12, d->bat<20?RED:GRN); }
+        sprintf(s,"%d%%",d->bat);   fieldR(232,260,56,16,s,WHT,2,cBat);   // 电量文本 (清56px, 覆盖100%)
+        if(d->bat!=lastBat){ lastBat=d->bat;                              // 电量 slider (缩短到46..170, 不遮文本)
+            tft.fillRect(46,262,124,12,TRK);
+            tft.fillRect(46,262,124*d->bat/100,12, d->bat<20?RED:GRN); }
     }
     tft.endWrite(); uiUnlock();
 }
@@ -351,7 +472,6 @@ static bool infoDataChanged(const LiveInfo *l, const CfgInfo *c){
 void uiShowInfo(void){
     page=P_INFO; uiLock(); tft.startWrite();
     tft.fillScreen(BLK);
-    statusBar();
     ptext("Info",10,30,ORNG,3); drawBtn(B_BACK,false);
     tft.fillRoundRect(8,58,224,110,8,CARD);
     ptext("LIVE DATA",18,64,CYAN,2);
