@@ -130,6 +130,38 @@ Arduino/libraries/TFT_eSPI/
 - **SPI 频率 80MHz** -- `Setup400_EKSR.h` 中 `SPI_FREQUENCY 80000000` (ESP32-S3 SPI 硬件上限)；若实测花屏/乱码，回退 `40000000` 或 `64000000`
 - **`USE_HSPI_PORT` 必须保留** -- ESP32-S3 开启 OPI PSRAM 后，强制 TFT 走 SPI3 (HSPI) 以避开 FSPI (SPI2) 与 OPI PSRAM 的冲突，否则会 StoreProhibited 崩溃
 
+## PlatformIO 支持（VS Code 迁移）
+
+本工程已可在 PlatformIO 中直接编译上传（`platformio.ini` 已就位，采用 `src_dir = .` 原地迁移，无需移动源码）。
+
+### 已验证配置
+
+| 项 | 配置 |
+|---|---|
+| 板卡 | `board = esp32-s3-devkitc-1` + `board_upload.flash_size = 16MB` + `default_16MB.csv` 分区 |
+| PSRAM | `board_build.arduino.memory_type = qio_opi` + `-DBOARD_HAS_PSRAM`（8MB 解锁） |
+| USB 串口 | `-DARDUINO_USB_CDC_ON_BOOT=1`（Type-C 原生 USB） |
+| 运行核心 | `-DARDUINO_RUNNING_CORE=1`（loop 在 Core 1，BLE/diag 在 Core 0） |
+| NimBLE | `lib_deps = h2zero/NimBLE-Arduino@^2.3.6`（PlatformIO 的 Core 2.x 不自带，需单独声明） |
+
+### 踩坑记录：TFT_eSPI 引脚配置必须覆盖库文件
+
+**症状**：编译、上传都成功，但屏幕黑屏、无背光。
+
+**根因**：TFT_eSPI 2.5.43 的 `User_Setup_Select.h` 不支持 `TFT_ESPI_USER_SETUP_PATH` 宏（新版本才加入）；而把自定义 `User_Setup.h` 放进项目 `include/` 的"影子覆盖"法只对工程源码生效，**库自身的 `TFT_eSPI.cpp` 编译时仍使用库目录下的默认 `User_Setup.h`**（库目录在包含路径中优先），导致驱动类型与引脚配置全部失效。
+
+**解决**：直接覆盖库文件（已验证有效）：
+
+```
+.pio/libdeps/es3c28p/TFT_eSPI/User_Setup.h   ← 替换为 Setup400_EKSR.h 的内容
+```
+
+> 注意：若删除 `.pio/libdeps` 或修改 `lib_deps` 版本导致 TFT_eSPI 重新下载，此覆盖会丢失，需重新执行。一劳永逸的办法是升级 TFT_eSPI 到支持 `TFT_ESPI_USER_SETUP_PATH` 宏的版本，并在 `build_flags` 中注入。
+
+### LEDC 背光：Core 2.x / 3.x 兼容
+
+`display.cpp` 中背光初始化已做内核版本判断（`ESP_ARDUINO_VERSION >= 3.0.0` 时用新 API `ledcAttach`/`ledcWrite`，否则用旧 API `ledcSetup`/`ledcAttachPin`），Arduino IDE（Core 3.x）与 PlatformIO（Core 2.x）均可编译。
+
 ## 引脚说明
 
 ### TFT SPI 引脚

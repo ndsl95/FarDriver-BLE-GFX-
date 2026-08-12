@@ -23,8 +23,16 @@ void display_begin(void)
     uiBegin();
 
 #if TFT_BL_PIN > 0
+    /* ESP32 Arduino Core 3.x 移除了 ledcSetup/ledcAttachPin (改用新 API);
+       此处按内核版本兼容 2.x 与 3.x */
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
     ledcAttach(TFT_BL_PIN, TFT_BL_FREQ, 8);
     ledcWrite(TFT_BL_PIN, 255);
+#else
+    ledcSetup(0, TFT_BL_FREQ, 8);
+    ledcAttachPin(TFT_BL_PIN, 0);
+    ledcWrite(0, 255);
+#endif
 #endif
 }
 
