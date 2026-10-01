@@ -3,8 +3,11 @@
 // 引脚来源: https://www.lcdwiki.com/2.8inch_ESP32-S3_Display
 //
 // PlatformIO 用法: platformio.ini 中已设置
-//   -D TFT_ESPI_USER_SETUP_PATH=\"Setup400_EKSR.h\"
+//   -DUSER_SETUP_LOADED=1
+//   -include include/Setup400_EKSR.h
 // 本文件必须位于项目 include/ 目录, 与工程根目录的 Setup400_EKSR.h 保持一致
+
+#pragma once
 
 #define USER_SETUP_ID 400
 

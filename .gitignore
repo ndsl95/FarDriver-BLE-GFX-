@@ -11,6 +11,9 @@
 # VSCode / PlatformIO
 .vscode/
 .pio/
+*.log
+tools/chinese-font-preview.png
+__pycache__/
 pio_environment.ini
 
 # 系统文件
