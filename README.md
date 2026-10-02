@@ -1,6 +1,6 @@
 # FarDriver BLE 仪表盘
 
-> 当前分支为 **越野车+加大档位定制版**，提供 240×320 竖屏中文界面。定制说明见 [CUSTOMER_UI.md](CUSTOMER_UI.md)。
+> 当前分支为 **竖屏版**，提供 240×320 竖屏中文界面。定制说明见 [CUSTOMER_UI.md](CUSTOMER_UI.md)。
 
 ## 竖屏页面实机截图
 
