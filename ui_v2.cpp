@@ -1,5 +1,5 @@
 /*
- * ui_v2.cpp - ES3C28P 240x320 portrait UI, second generation
+ * ui_v2.cpp - ES3C28P 320x240 landscape customer UI
  *
  * The BLE/protocol layer only sees the stable API in ui_gfx.h.  This file is
  * intentionally independent of the old ui_gfx.cpp so the original UI remains
@@ -33,8 +33,8 @@ constexpr uint16_t C_GREEN   = 0x4EEB;
 constexpr uint16_t C_AMBER   = 0xFD20;
 constexpr uint16_t C_RED     = 0xF9E7;
 
-constexpr int SCREEN_W = 240;
-constexpr int SCREEN_H = 320;
+constexpr int SCREEN_W = 320;
+constexpr int SCREEN_H = 240;
 constexpr int MAX_DEVICES = 5;
 
 // 仪表指针满量程速度（km/h）。以后只需修改此值即可调整映射范围。
@@ -56,12 +56,12 @@ struct Button {
     bool outline;
 };
 
-const Button BTN_SCAN_CANCEL = {20, 266, 200, 44, "停止扫描", C_CYAN, true};
-const Button BTN_RESCAN      = {8, 270, 104, 42, "重新扫描", C_CYAN, true};
-const Button BTN_CONNECT     = {120, 270, 112, 42, "连接", C_RED, true};
-const Button BTN_DISCONNECT  = {8, 291, 104, 23, "断开连接", C_RED, true};
-const Button BTN_DETAILS     = {120, 291, 112, 23, "详细信息", C_GREEN, true};
-const Button BTN_BACK        = {176, 8, 56, 36, "返回", C_CYAN, true};
+const Button BTN_SCAN_CANCEL = {64, 202, 192, 30, "停止扫描", C_CYAN, true};
+const Button BTN_RESCAN      = {8, 205, 146, 27, "重新扫描", C_CYAN, true};
+const Button BTN_CONNECT     = {166, 205, 146, 27, "连接", C_GREEN, true};
+const Button BTN_DISCONNECT  = {4, 211, 104, 23, "断开连接", C_RED, true};
+const Button BTN_DETAILS     = {208, 211, 108, 23, "详细信息", C_GREEN, true};
+const Button BTN_BACK        = {260, 8, 52, 30, "返回", C_CYAN, true};
 
 Page page = PAGE_SCAN;
 SemaphoreHandle_t uiMutex = nullptr;
@@ -104,7 +104,8 @@ int chineseTextWidth(const char *value, uint8_t size) {
     return width;
 }
 
-void drawChineseText(const char *value, int16_t x, int16_t y,
+template<typename Canvas>
+void drawChineseText(Canvas &canvas, const char *value, int16_t x, int16_t y,
                      uint16_t colour, uint8_t size, uint8_t datum) {
     const int width = chineseTextWidth(value, size);
     const int height = 12 * size;
@@ -115,7 +116,7 @@ void drawChineseText(const char *value, int16_t x, int16_t y,
     while (*value) {
         const uint32_t code = nextCodepoint(value);
         if (code < 0x80) {
-            tft.drawChar(x, y + 2 * size, code, colour, colour, size);
+            canvas.drawChar(x, y + 2 * size, code, colour, colour, size);
             x += 6 * size;
             continue;
         }
@@ -130,29 +131,35 @@ void drawChineseText(const char *value, int16_t x, int16_t y,
                     if (!(bits & (1U << (11 - col)))) { ++col; continue; }
                     const int start = col++;
                     while (col < 12 && (bits & (1U << (11 - col)))) ++col;
-                    tft.fillRect(x + start * size, y + row * size,
+                    canvas.fillRect(x + start * size, y + row * size,
                                  (col - start) * size, size, colour);
                 }
             }
         } else {
-            tft.drawRect(x + size, y + size, 10 * size, 10 * size, colour);
+            canvas.drawRect(x + size, y + size, 10 * size, 10 * size, colour);
         }
         x += 12 * size;
     }
 }
 
-void text(const char *value, int16_t x, int16_t y, uint16_t colour,
+template<typename Canvas>
+void textOn(Canvas &canvas, const char *value, int16_t x, int16_t y, uint16_t colour,
           uint8_t size = 1, uint8_t datum = TL_DATUM) {
     for (const char *p = value; *p; ++p) {
         if ((uint8_t)*p >= 0x80) {
-            drawChineseText(value, x, y, colour, size, datum);
+            drawChineseText(canvas, value, x, y, colour, size, datum);
             return;
         }
     }
-    tft.setTextDatum(datum);
-    tft.setTextColor(colour, C_BG);
-    tft.setTextSize(size);
-    tft.drawString(value, x, y, 1);
+    canvas.setTextDatum(datum);
+    canvas.setTextColor(colour, colour);
+    canvas.setTextSize(size);
+    canvas.drawString(value, x, y, 1);
+}
+
+void text(const char *value, int16_t x, int16_t y, uint16_t colour,
+          uint8_t size = 1, uint8_t datum = TL_DATUM) {
+    textOn(tft, value, x, y, colour, size, datum);
 }
 
 void panel(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t fill = C_PANEL) {
@@ -174,10 +181,9 @@ bool contains(const Button &b, int16_t x, int16_t y) {
 }
 
 void header(const char *title, const char *eyebrow = "远驱仪表") {
-    tft.fillRect(0, 0, SCREEN_W, 50, C_BG);
-    text(eyebrow, 8, 7, C_MUTED, 1);
-    text(title, 8, 22, C_TEXT, 2);
-    tft.drawFastHLine(8, 49, 224, C_LINE);
+    tft.fillRect(0, 0, SCREEN_W, 46, C_BG);
+    text(eyebrow, 8, 4, C_MUTED, 1);
+    text(title, 8, 20, C_TEXT, 2);
 }
 
 void drawSignal(int16_t x, int16_t y, int8_t rssi, uint16_t colour) {
@@ -189,84 +195,62 @@ void drawSignal(int16_t x, int16_t y, int8_t rssi, uint16_t colour) {
 }
 
 void drawDevice(int index) {
-    const int y = 54 + index * 42;
+    const int y = 46 + index * 29;
     const bool selected = index == selectedDevice;
-    const uint16_t fill = selected ? C_PANEL_2 : C_PANEL;
-    tft.fillRoundRect(8, y, 224, 36, 7, fill);
-    tft.drawRoundRect(8, y, 224, 36, 7, selected ? C_CYAN : C_LINE);
-    if (selected) tft.fillRoundRect(8, y, 4, 36, 2, C_CYAN);
-    text(deviceName[index], 18, y + 8, C_TEXT, 1);
+    panel(8, y, 304, 25, selected ? C_PANEL_2 : C_PANEL);
+    tft.drawRoundRect(8, y, 304, 25, 8, selected ? C_CYAN : C_LINE);
+    tft.fillCircle(18, y + 12, 3, selected ? C_CYAN : C_MUTED);
+    // UTF-8 aware truncation leaves the signal area free.
+    char name[24] = {};
+    size_t used = 0;
+    int width = 0;
+    const char *cursor = deviceName[index];
+    while (*cursor) {
+        const char *previous = cursor;
+        uint32_t code = nextCodepoint(cursor);
+        const size_t bytes = cursor - previous;
+        const int glyphWidth = code < 128 ? 6 : 12;
+        if (width + glyphWidth > 190 || used + bytes >= sizeof(name)) break;
+        memcpy(name + used, previous, bytes);
+        used += bytes;
+        width += glyphWidth;
+    }
+    text(name, 29, y + 12, C_TEXT, 1, ML_DATUM);
     char rssi[12];
-    snprintf(rssi, sizeof(rssi), "%d", deviceRssi[index]);
-    text(rssi, 202, y + 9, C_MUTED, 1, TR_DATUM);
-    drawSignal(207, y + 10, deviceRssi[index], selected ? C_CYAN : C_MUTED);
+    snprintf(rssi, sizeof(rssi), "%d dBm", deviceRssi[index]);
+    text(rssi, 266, y + 12, C_MUTED, 1, MR_DATUM);
+    drawSignal(280, y + 5, deviceRssi[index], selected ? C_CYAN : C_MUTED);
 }
 
 void drawListPage() {
     page = PAGE_LIST;
     tft.fillScreen(C_BG);
     header("选择设备");
+    char count[24];
+    snprintf(count, sizeof(count), "发现 %d 台设备", deviceCount);
+    text(count, 312, 7, C_CYAN, 1, TR_DATUM);
     if (!deviceCount) {
-        text("未发现控制器", 120, 125, C_MUTED, 1, MC_DATUM);
-        text("请靠近控制器重新扫描", 120, 147, C_MUTED, 1, MC_DATUM);
+        text("未发现控制器", 160, 110, C_MUTED, 1, MC_DATUM);
+        text("请靠近控制器重新扫描", 160, 135, C_MUTED, 1, MC_DATUM);
     } else {
         for (int i = 0; i < deviceCount; ++i) drawDevice(i);
     }
     drawButton(BTN_RESCAN);
-    drawButton(BTN_CONNECT, false);
+    drawButton(BTN_CONNECT);
 }
 
 void drawSpinner() {
     if (millis() - lastSpinnerMs < 75) return;
     lastSpinnerMs = millis();
-    const int cx = 120, cy = 138, r = 36;
-    tft.fillCircle(cx, cy, r + 4, C_BG);
+    const int cx = 76, cy = 118, r = 35;
+    tft.fillCircle(cx, cy, r + 4, C_PANEL);
     for (int i = 0; i < 12; ++i) {
         const float a = (i * 30 - 90) * DEG_TO_RAD;
-        uint16_t c = (i == spinnerStep) ? C_CYAN : (i + 1 == spinnerStep ? C_BLUE : C_LINE);
-        int x0 = cx + cosf(a) * 25, y0 = cy + sinf(a) * 25;
-        int x1 = cx + cosf(a) * 36, y1 = cy + sinf(a) * 36;
-        tft.drawWideLine(x0, y0, x1, y1, 4, c);
+        const uint16_t c = i == spinnerStep ? C_CYAN : (i + 1) % 12 == spinnerStep ? C_BLUE : C_LINE;
+        tft.drawWideLine(cx + cosf(a) * 25, cy + sinf(a) * 25,
+                        cx + cosf(a) * 35, cy + sinf(a) * 35, 4, c);
     }
     spinnerStep = (spinnerStep + 1) % 12;
-}
-
-void labelValue(const char *label, const char *value, int16_t x, int16_t y,
-                int16_t w, uint16_t valueColour = C_TEXT) {
-    text(label, x + 8, y + 7, C_MUTED, 1);
-    text(value, x + w - 8, y + 23, valueColour, 2, BR_DATUM);
-}
-
-void arcSegment(int cx, int cy, int radius, int startAngle, int endAngle,
-                uint16_t colour, int thickness) {
-    for (int r = radius - thickness / 2; r <= radius + thickness / 2; ++r) {
-        int oldX = 0, oldY = 0;
-        for (int a = startAngle; a <= endAngle; a += 3) {
-            float rad = a * DEG_TO_RAD;
-            int x = cx + cosf(rad) * r;
-            int y = cy + sinf(rad) * r;
-            if (a != startAngle) tft.drawLine(oldX, oldY, x, y, colour);
-            oldX = x; oldY = y;
-        }
-    }
-}
-
-void drawGaugeFace() {
-    const int cx = 120, cy = 92, radius = 66;
-    // Four discrete colour zones reproduce the reference without expensive glow effects.
-    arcSegment(cx, cy, radius, 140, 198, C_GREEN, 8);
-    arcSegment(cx, cy, radius, 203, 261, C_BLUE, 8);
-    arcSegment(cx, cy, radius, 266, 324, C_AMBER, 8);
-    arcSegment(cx, cy, radius, 329, 400, C_RED, 8);
-    for (int a = 140; a <= 400; a += 10) {
-        float rad = a * DEG_TO_RAD;
-        bool major = ((a - 140) % 30) == 0;
-        int r0 = major ? 50 : 54;
-        int r1 = 59;
-        tft.drawLine(cx + cosf(rad) * r0, cy + sinf(rad) * r0,
-                     cx + cosf(rad) * r1, cy + sinf(rad) * r1,
-                     major ? C_TEXT : C_MUTED);
-    }
 }
 
 uint16_t gaugeZoneColour(int angle) {
@@ -297,45 +281,84 @@ uint16_t blendColour565(uint16_t current, uint16_t target, float factor) {
     return (uint16_t)(cr << 11) | (uint16_t)(cg << 5) | cb;
 }
 
-constexpr int GAUGE_CX = 120;
-constexpr int GAUGE_CY = 92;
-constexpr int GAUGE_POINTER_INNER = 48;
-constexpr int GAUGE_POINTER_TIP = 78;  // Extends beyond the colour band's outer edge.
+constexpr int GAUGE_CX = 77;
+constexpr int GAUGE_CY = 94;
+constexpr int GAUGE_Y = 20;
+constexpr int GAUGE_W = 150;
+constexpr int GAUGE_H = 156;
+TFT_eSprite gaugeCanvas(&tft);
+bool gaugeSpriteReady = false;
 
-void drawGaugePointer(int angle) {
+struct MetricLayout { int16_t x, y, w, h; const char *label; uint16_t accent; uint8_t size; };
+const MetricLayout metrics[5] = {
+    {158, 35, 73, 55, "电压/V", C_BLUE, 2},
+    {237, 35, 73, 55, "电流/A", C_CYAN, 2},
+    {158, 99, 48, 63, "功率/kW", C_GREEN, 2},
+    {210, 99, 48, 63, "控温/℃", C_AMBER, 2},
+    {262, 99, 48, 63, "电温/℃", C_RED, 2}
+};
+uint16_t lastMetricColour[5] = {};
+
+// Compose the entire left instrument before pushing it: no needle erase artifacts.
+template<typename Canvas>
+void renderGauge(Canvas &canvas, int yOffset, const char *speed,
+                 const char *gear, int angle, uint16_t colour, bool visible) {
+    const int cx = GAUGE_CX, cy = GAUGE_CY - yOffset;
+    const int starts[4] = {140, 203, 266, 329};
+    const int ends[4] = {198, 261, 324, 400};
+    const uint16_t colours[4] = {C_GREEN, C_BLUE, C_AMBER, C_RED};
+    for (int zone = 0; zone < 4; ++zone) {
+        for (int r = 59; r <= 65; ++r) {
+            int oldX = 0, oldY = 0;
+            for (int a = starts[zone]; a <= ends[zone]; ++a) {
+                const float rad = a * DEG_TO_RAD;
+                const int x = cx + cosf(rad) * r, y = cy + sinf(rad) * r;
+                if (a > starts[zone]) canvas.drawLine(oldX, oldY, x, y, colours[zone]);
+                oldX = x; oldY = y;
+            }
+        }
+    }
+    for (int a = 140; a <= 400; a += 10) {
+        const float rad = a * DEG_TO_RAD;
+        const bool major = (a - 140) % 30 == 0;
+        const int inner = major ? 49 : 52;
+        canvas.drawLine(cx + cosf(rad) * inner, cy + sinf(rad) * inner,
+                        cx + cosf(rad) * 57, cy + sinf(rad) * 57,
+                        major ? C_TEXT : C_MUTED);
+    }
     const float rad = angle * DEG_TO_RAD;
     const float cs = cosf(rad), sn = sinf(rad);
-    const int x0 = GAUGE_CX + cs * GAUGE_POINTER_INNER;
-    const int y0 = GAUGE_CY + sn * GAUGE_POINTER_INNER;
-    const int x1 = GAUGE_CX + cs * GAUGE_POINTER_TIP;
-    const int y1 = GAUGE_CY + sn * GAUGE_POINTER_TIP;
-    tft.drawWideLine(x0, y0, x1, y1, 7, C_RED);
-    tft.drawWideLine(x0, y0, x1, y1, 3, C_TEXT);
-
-    const float sideX = -sn * 5.0f, sideY = cs * 5.0f;
-    const int baseX = GAUGE_CX + cs * 70;
-    const int baseY = GAUGE_CY + sn * 70;
-    tft.fillTriangle(x1, y1,
-                     baseX + sideX, baseY + sideY,
-                     baseX - sideX, baseY - sideY, C_RED);
+    const int x0 = cx + cs * 46, y0 = cy + sn * 46;
+    const int x1 = cx + cs * 70, y1 = cy + sn * 70;
+    for (int width = 3; width >= 1; width -= 2) {
+        const int dx = -sn * width, dy = cs * width;
+        const uint16_t needle = width == 3 ? C_RED : C_TEXT;
+        canvas.fillTriangle(x0 + dx, y0 + dy, x0 - dx, y0 - dy, x1 + dx, y1 + dy, needle);
+        canvas.fillTriangle(x0 - dx, y0 - dy, x1 + dx, y1 + dy, x1 - dx, y1 - dy, needle);
+    }
+    if (visible) textOn(canvas, speed, 77, 81 - yOffset, colour, 3, MC_DATUM);
+    textOn(canvas, "km/h", 77, 107 - yOffset, C_MUTED, 1, MC_DATUM);
+    textOn(canvas, "档位", 51, 150 - yOffset, C_MUTED, 1, MC_DATUM);
+    textOn(canvas, gear, 91, 150 - yOffset, C_TEXT, strlen(gear) > 1 ? 3 : 4, MC_DATUM);
 }
 
-void eraseGaugePointer(int angle) {
-    const float rad = angle * DEG_TO_RAD;
-    const float cs = cosf(rad), sn = sinf(rad);
-    const int x0 = GAUGE_CX + cs * GAUGE_POINTER_INNER;
-    const int y0 = GAUGE_CY + sn * GAUGE_POINTER_INNER;
-    const int x1 = GAUGE_CX + cs * GAUGE_POINTER_TIP;
-    const int y1 = GAUGE_CY + sn * GAUGE_POINTER_TIP;
-    tft.drawWideLine(x0, y0, x1, y1, 11, C_BG);
+void drawGauge(const char *speed, const char *gear, int angle, uint16_t colour, bool visible) {
+    if (gaugeSpriteReady) {
+        gaugeCanvas.fillSprite(C_BG);
+        renderGauge(gaugeCanvas, GAUGE_Y, speed, gear, angle, colour, visible);
+        gaugeCanvas.pushSprite(0, GAUGE_Y);
+    } else {
+        tft.fillRect(0, GAUGE_Y, GAUGE_W, GAUGE_H, C_BG);
+        renderGauge(tft, 0, speed, gear, angle, colour, visible);
+    }
 }
 
-void metricCard(int index, const char *label, uint16_t accent) {
-    int x = 4 + index * 47;
-    panel(x, 165, 43, 48, C_PANEL);
-    tft.fillRect(x + 6, 169, 31, 2, accent);
-    text("--", x + 21, 185, accent, 1, MC_DATUM);
-    text(label, x + 21, 204, C_MUTED, 1, BC_DATUM);
+void metricCard(int index) {
+    const auto &m = metrics[index];
+    panel(m.x, m.y, m.w, m.h);
+    tft.fillRect(m.x + 7, m.y + 4, m.w - 14, 2, m.accent);
+    text("--", m.x + m.w / 2, m.y + 26, m.accent, m.size, MC_DATUM);
+    text(m.label, m.x + m.w / 2, m.y + m.h - 16, C_MUTED, 1, TC_DATUM);
 }
 
 void resetDashCache();
@@ -350,18 +373,21 @@ bool updateValue(char *cache, size_t cacheSize, const char *value,
     strlcpy(cache, value, cacheSize);
     tft.fillRect(x, y, w, h, background);
     int16_t tx = datum == MC_DATUM ? x + w / 2 : x + w - 4;
-    int16_t ty = datum == MC_DATUM ? y + h / 2 : y + 2;
+    int16_t ty = (datum == MC_DATUM || datum == MR_DATUM) ? y + h / 2 : y + 2;
     text(value, tx, ty, colour, size, datum);
     return true;
 }
 
 // 中文标签高于旧英文字体，数值背景刷新后必须最后重绘标签。
-void updateMetric(int index, const char *label, char *cache, size_t cacheSize,
+void updateMetric(int index, char *cache, size_t cacheSize,
                   const char *value, uint16_t colour) {
-    const int x = 4 + index * 47;
-    if (updateValue(cache, cacheSize, value, x + 4, 176, 35, 19,
-                    colour, 1, MC_DATUM)) {
-        text(label, x + 21, 204, C_MUTED, 1, BC_DATUM);
+    const auto &m = metrics[index];
+    const uint8_t size = strlen(value) * 6 * m.size <= m.w - 8 ? m.size : 1;
+    if (lastMetricColour[index] != colour) { cache[0] = '\0'; lastMetricColour[index] = colour; }
+    if (updateValue(cache, cacheSize, value, m.x + 4, m.y + 14, m.w - 8, 24,
+                    colour, size, MC_DATUM)) {
+        // Labels are the final layer, even after a numeric background update.
+        text(m.label, m.x + m.w / 2, m.y + m.h - 16, C_MUTED, 1, TC_DATUM);
     }
 }
 
@@ -387,24 +413,33 @@ void resetDashCache() {
     lastThrottle = lastBattery = 255;
 }
 
-char infoCache[15][16] = {};
+char infoCache[15][24] = {};
 
 void resetInfoCache() {
     for (auto &item : infoCache) item[0] = '\0';
 }
 
-void infoRow(const char *label, int row, int col) {
-    int x = col ? 122 : 8;
-    int y = 56 + row * 49;
-    panel(x, y, 110, 43);
-    text(label, x + 7, y + 6, C_MUTED, 1);
+struct InfoLayout { int16_t x, y; const char *label; };
+const InfoLayout infoLayout[9] = {
+    {8, 48, "转速"}, {111, 48, "速度"}, {214, 48, "功率"},
+    {8, 101, "电压"}, {111, 101, "电流"}, {8, 154, "电机温度"},
+    {111, 154, "控制器温度"}, {214, 101, "档位"}, {214, 154, "额定参数"}
+};
+void infoRow(int slot) {
+    const auto &r = infoLayout[slot];
+    panel(r.x, r.y, 98, 47);
+    text(r.label, r.x + 7, r.y + 5, C_MUTED, 1);
+    text("--", r.x + 91, r.y + 33, C_TEXT, 1, MR_DATUM);
 }
-
-void putInfo(int slot, const char *value, int row, int col, uint16_t colour = C_TEXT) {
-    int x = col ? 122 : 8;
-    int y = 56 + row * 49;
-    updateValue(infoCache[slot], sizeof(infoCache[slot]), value, x + 5, y + 18, 100, 21,
-                colour, 1, TR_DATUM);
+void putInfo(int slot, const char *value, uint16_t colour = C_TEXT) {
+    if (slot == 9) {
+        updateValue(infoCache[slot], sizeof(infoCache[slot]), value,
+                    134, 211, 172, 18, colour, 1, MR_DATUM);
+        return;
+    }
+    const auto &r = infoLayout[slot];
+    updateValue(infoCache[slot], sizeof(infoCache[slot]), value,
+                r.x + 5, r.y + 22, 88, 21, colour, slot == 7 ? 2 : 1, MR_DATUM);
 }
 
 int hitTarget(int16_t x, int16_t y) {
@@ -414,7 +449,7 @@ int hitTarget(int16_t x, int16_t y) {
             if (contains(BTN_RESCAN, x, y)) return 1;
             if (contains(BTN_CONNECT, x, y)) return 2;
             for (int i = 0; i < deviceCount; ++i)
-                if (x >= 8 && x < 232 && y >= 54 + i * 42 && y < 90 + i * 42) return 10 + i;
+                if (x >= 8 && x < 312 && y >= 46 + i * 29 && y < 71 + i * 29) return 10 + i;
             return 0;
         case PAGE_DASH:
             if (contains(BTN_DISCONNECT, x, y)) return 1;
@@ -453,23 +488,24 @@ void (*onUiOpenInfo)(void) = nullptr;
 void uiBegin(void) {
     if (!uiMutex) uiMutex = xSemaphoreCreateRecursiveMutex();
     tft.setTextWrap(false);
+    gaugeCanvas.setColorDepth(16);
+    gaugeSpriteReady = gaugeCanvas.createSprite(GAUGE_W, GAUGE_H) != nullptr;
+    Serial.println(gaugeSpriteReady ? "[UI] landscape 320x240, gauge sprite ready" : "[UI] landscape 320x240, direct-render fallback");
     page = PAGE_SCAN;
 }
 
 void uiShowScan(void) {
-    lockUi();
-    page = PAGE_SCAN;
-    tft.startWrite();
+    lockUi(); page = PAGE_SCAN; tft.startWrite();
     tft.fillScreen(C_BG);
     header("正在搜索");
-    panel(20, 78, 200, 154);
-    text("正在查找控制器", 120, 190, C_TEXT, 1, MC_DATUM);
-    text("扫描约需五秒", 120, 211, C_MUTED, 1, MC_DATUM);
+    text("蓝牙 搜索中", 312, 7, C_CYAN, 1, TR_DATUM);
+    panel(8, 48, 304, 141);
+    text("正在查找控制器", 206, 103, C_TEXT, 1, MC_DATUM);
+    text("扫描约需五秒", 206, 127, C_MUTED, 1, MC_DATUM);
+    text("请保持控制器通电", 206, 148, C_MUTED, 1, MC_DATUM);
     drawButton(BTN_SCAN_CANCEL);
-    tft.endWrite();
-    lastSpinnerMs = 0;
-    spinnerStep = 0;
-    unlockUi();
+    lastSpinnerMs = 0; spinnerStep = 0;
+    tft.endWrite(); unlockUi();
 }
 
 void uiShowList(void) {
@@ -486,147 +522,122 @@ void uiScanClear(void) {
 }
 
 void uiScanAdd(const char *name, int8_t rssi) {
-    if (!name || deviceCount >= MAX_DEVICES) return;
+    if (!name) return;
     lockUi();
+    if (deviceCount >= MAX_DEVICES) { unlockUi(); return; }
     strlcpy(deviceName[deviceCount], name, sizeof(deviceName[deviceCount]));
     deviceRssi[deviceCount] = rssi;
-    int added = deviceCount++;
-    if (page == PAGE_LIST) { tft.startWrite(); drawDevice(added); tft.endWrite(); }
+    ++deviceCount;
+    if (selectedDevice < 0) selectedDevice = 0;
+    if (page == PAGE_LIST) { tft.startWrite(); drawListPage(); tft.endWrite(); }
     unlockUi();
 }
 
 void uiShowDash(void) {
-    lockUi(); tft.startWrite();
-    page = PAGE_DASH;
+    lockUi(); tft.startWrite(); page = PAGE_DASH;
     tft.fillScreen(C_BG);
-    // Right-aligned Bluetooth status, with a consistent 8 px edge margin.
     const char *btStatus = "已连接";
-    const uint16_t btColour = C_CYAN;
-    text(btStatus, SCREEN_W - 8, 7, btColour, 1, TR_DATUM);
+    text(btStatus, SCREEN_W - 8, 7, C_CYAN, 1, TR_DATUM);
     text("蓝牙", SCREEN_W - 8 - chineseTextWidth(btStatus, 1) - 6,
          7, C_BLUE, 1, TR_DATUM);
-
-    drawGaugeFace();
-    text("--", 120, 77, C_TEXT, 3, MC_DATUM);
-    text("km/h", 120, 99, C_MUTED, 1, MC_DATUM);
-    text("档位", 120, 114, C_MUTED, 1, MC_DATUM);
-    lastGaugeAngle = 140;
-    smoothSpeed = 0.0f;
-    currentSpeedColour = C_GREEN;
-    lastSpeedVisible = true;
-    drawGaugePointer(lastGaugeAngle);
-    text("-", 120, 143, C_TEXT, 4, MC_DATUM);
-
-    metricCard(0, "电压", C_BLUE);
-    metricCard(1, "电流", C_CYAN);
-    metricCard(2, "功率", C_GREEN);
-    metricCard(3, "控温", C_AMBER);
-    metricCard(4, "电温", C_RED);
-
-    panel(4, 219, 232, 30, C_PANEL);
-    text("油门", 10, 224, C_MUTED, 1);
-    tft.fillRoundRect(62, 229, 122, 8, 3, C_LINE);
-    text("--%", 229, 224, C_TEXT, 1, TR_DATUM);
-    panel(4, 254, 232, 30, C_PANEL);
-    text("电量", 10, 259, C_MUTED, 1);
-    tft.fillRoundRect(62, 264, 122, 8, 3, C_LINE);
-    text("--%", 229, 259, C_TEXT, 1, TR_DATUM);
+    lastGaugeAngle = 140; smoothSpeed = 0.0f;
+    currentSpeedColour = C_GREEN; lastSpeedVisible = true;
+    drawGauge("--", "-", 140, C_TEXT, true);
+    for (int i = 0; i < 5; ++i) metricCard(i);
+    panel(4, 180, 152, 25);
+    text("电量", 12, 187, C_MUTED, 1);
+    tft.fillRoundRect(40, 190, 73, 6, 3, C_LINE);
+    text("--%", 149, 193, C_TEXT, 1, MR_DATUM);
+    panel(164, 180, 152, 25);
+    text("油门", 172, 187, C_MUTED, 1);
+    tft.fillRoundRect(200, 190, 73, 6, 3, C_LINE);
+    text("--%", 309, 193, C_TEXT, 1, MR_DATUM);
     drawButton(BTN_DISCONNECT); drawButton(BTN_DETAILS);
     resetDashCache();
     tft.endWrite(); unlockUi();
 }
 
 void uiDashUpdate(const DashData *d) {
-    if (!d || page != PAGE_DASH) return;
-    char value[16];
-    lockUi(); tft.startWrite();
+    if (!d) return;
+    lockUi();
+    if (page != PAGE_DASH) { unlockUi(); return; }
+    tft.startWrite();
+    char value[16], gear[8];
     const float targetSpeed = constrain(d->speed, 0.0f, SPEED_DISPLAY_MAX_KMH);
     smoothSpeed += (targetSpeed - smoothSpeed) * SMOOTH_SPEED_FACTOR;
     if (fabsf(targetSpeed - smoothSpeed) < 0.05f) smoothSpeed = targetSpeed;
-    const float displaySpeed = constrain(smoothSpeed, 0.0f, SPEED_DISPLAY_MAX_KMH);
-    snprintf(value, sizeof(value), "%.0f", displaySpeed);
+    snprintf(value, sizeof(value), "%.0f", smoothSpeed);
+    snprintf(gear, sizeof(gear), "%u", d->gear);
     const int gaugeAngle = 140 + (int)(constrain(smoothSpeed, 0.0f, GAUGE_MAX_SPEED_KMH)
                                       / GAUGE_MAX_SPEED_KMH * 260.0f);
-    const uint16_t targetSpeedColour = gaugeZoneColour(gaugeAngle);
-    const uint16_t nextSpeedColour = blendColour565(currentSpeedColour, targetSpeedColour,
-                                                     SPEED_COLOUR_BLEND_FACTOR);
-    const bool speedVisible = d->speed <= SPEED_BLINK_THRESHOLD_KMH ||
-                              ((millis() / SPEED_BLINK_INTERVAL_MS) & 1U) == 0;
-    if (gaugeAngle != lastGaugeAngle ||
-        strncmp(speedCache, value, sizeof(speedCache)) != 0 ||
-        nextSpeedColour != currentSpeedColour || speedVisible != lastSpeedVisible) {
+    const uint16_t nextColour = blendColour565(currentSpeedColour, gaugeZoneColour(gaugeAngle),
+                                              SPEED_COLOUR_BLEND_FACTOR);
+    const bool visible = d->speed <= SPEED_BLINK_THRESHOLD_KMH ||
+                         ((millis() / SPEED_BLINK_INTERVAL_MS) & 1U) == 0;
+    if (gaugeAngle != lastGaugeAngle || strcmp(speedCache, value) || strcmp(gearCache, gear) ||
+        nextColour != currentSpeedColour || visible != lastSpeedVisible) {
         strlcpy(speedCache, value, sizeof(speedCache));
-        currentSpeedColour = nextSpeedColour;
-        lastSpeedVisible = speedVisible;
-        eraseGaugePointer(lastGaugeAngle);
-        drawGaugeFace();
-        tft.fillRect(72, 57, 96, 49, C_BG);
-        if (speedVisible) text(value, 120, 77, currentSpeedColour, 3, MC_DATUM);
-        text("km/h", 120, 99, C_MUTED, 1, MC_DATUM);
-        text("档位", 120, 114, C_MUTED, 1, MC_DATUM);
-        lastGaugeAngle = gaugeAngle;
-        drawGaugePointer(lastGaugeAngle);
+        strlcpy(gearCache, gear, sizeof(gearCache));
+        currentSpeedColour = nextColour; lastSpeedVisible = visible; lastGaugeAngle = gaugeAngle;
+        drawGauge(value, gear, gaugeAngle, nextColour, visible);
     }
     snprintf(value, sizeof(value), "%.1f", d->volt);
-    updateMetric(0, "电压", voltCache, sizeof(voltCache), value, C_BLUE);
+    updateMetric(0, voltCache, sizeof(voltCache), value, C_BLUE);
     snprintf(value, sizeof(value), "%.1f", d->curr);
-    updateMetric(1, "电流", currCache, sizeof(currCache), value, C_CYAN);
+    updateMetric(1, currCache, sizeof(currCache), value, C_CYAN);
     snprintf(value, sizeof(value), "%.2f", d->power);
-    updateMetric(2, "功率", powerCache, sizeof(powerCache), value, d->power < 0 ? C_GREEN : C_AMBER);
+    updateMetric(2, powerCache, sizeof(powerCache), value, d->power < 0 ? C_GREEN : C_AMBER);
     snprintf(value, sizeof(value), "%d", d->ctr);
-    updateMetric(3, "控温", ctrCache, sizeof(ctrCache), value, d->ctr >= 90 ? C_RED : C_TEXT);
+    updateMetric(3, ctrCache, sizeof(ctrCache), value, d->ctr >= 90 ? C_RED : C_TEXT);
     snprintf(value, sizeof(value), "%d", d->mot);
-    updateMetric(4, "电温", motCache, sizeof(motCache), value, d->mot >= 90 ? C_RED : C_TEXT);
-    snprintf(value, sizeof(value), "%u%%", d->thr);
-    updateValue(thrCache, sizeof(thrCache), value, 194, 224, 37, 16, C_TEXT, 1);
-    if (lastThrottle != d->thr) {
-        lastThrottle = d->thr;
-        tft.fillRoundRect(62, 229, 122, 8, 3, C_LINE);
-        if (d->thr) tft.fillRoundRect(62, 229, 122 * d->thr / 100, 8, 3, C_AMBER);
+    updateMetric(4, motCache, sizeof(motCache), value, d->mot >= 90 ? C_RED : C_TEXT);
+    const uint8_t battery = min((int)d->bat, 100), throttle = min((int)d->thr, 100);
+    snprintf(value, sizeof(value), "%u%%", battery);
+    updateValue(batCache, sizeof(batCache), value, 117, 185, 35, 16,
+                battery < 20 ? C_RED : C_GREEN, 1, MR_DATUM);
+    if (lastBattery != battery) {
+        lastBattery = battery;
+        tft.fillRoundRect(40, 190, 73, 6, 3, C_LINE);
+        if (battery) tft.fillRoundRect(40, 190, 73 * battery / 100, 6, 3, battery < 20 ? C_RED : C_GREEN);
     }
-    snprintf(value, sizeof(value), "%u%%", d->bat);
-    updateValue(batCache, sizeof(batCache), value, 194, 259, 37, 16, d->bat < 20 ? C_RED : C_GREEN, 1);
-    if (lastBattery != d->bat) {
-        lastBattery = d->bat;
-        tft.fillRoundRect(62, 264, 122, 8, 3, C_LINE);
-        if (d->bat) tft.fillRoundRect(62, 264, 122 * d->bat / 100, 8, 3, d->bat < 20 ? C_RED : C_GREEN);
-    }
-    snprintf(value, sizeof(value), "%u", d->gear);
-    if (strncmp(gearCache, value, sizeof(gearCache)) != 0) {
-        strlcpy(gearCache, value, sizeof(gearCache));
-        tft.fillRect(84, 126, 72, 33, C_BG);
-        text(value, 120, 143, C_TEXT, 4, MC_DATUM);
+    snprintf(value, sizeof(value), "%u%%", throttle);
+    updateValue(thrCache, sizeof(thrCache), value, 277, 185, 35, 16, C_TEXT, 1, MR_DATUM);
+    if (lastThrottle != throttle) {
+        lastThrottle = throttle;
+        tft.fillRoundRect(200, 190, 73, 6, 3, C_LINE);
+        if (throttle) tft.fillRoundRect(200, 190, 73 * throttle / 100, 6, 3, C_AMBER);
     }
     tft.endWrite(); unlockUi();
 }
 
 void uiShowInfo(void) {
-    lockUi(); tft.startWrite();
-    page = PAGE_INFO;
+    lockUi(); tft.startWrite(); page = PAGE_INFO;
     tft.fillScreen(C_BG);
-    header("详细信息");
-    drawButton(BTN_BACK);
-    const char *labels[10] = {"转速", "速度", "功率", "电压", "电流", "电温", "控温", "档位", "额定参数", "里程"};
-    for (int i = 0; i < 10; ++i) infoRow(labels[i], i / 2, i % 2);
+    header("详细信息"); drawButton(BTN_BACK);
+    for (int i = 0; i < 9; ++i) infoRow(i);
+    panel(8, 208, 304, 24);
+    text("累计里程", 16, 214, C_MUTED, 1);
+    text("-- km", 302, 220, C_TEXT, 1, MR_DATUM);
     resetInfoCache();
     tft.endWrite(); unlockUi();
 }
 
 void uiInfoUpdate(const LiveInfo *l, const CfgInfo *c) {
-    if (!l || page != PAGE_INFO) return;
-    char value[20];
-    lockUi(); tft.startWrite();
-    snprintf(value, sizeof(value), "%.0f", l->rpm); putInfo(0, value, 0, 0, C_CYAN);
-    snprintf(value, sizeof(value), "%.1f km/h", l->speed); putInfo(1, value, 0, 1);
-    snprintf(value, sizeof(value), "%+.2f kW", l->power); putInfo(2, value, 1, 0, l->power < 0 ? C_GREEN : C_AMBER);
-    snprintf(value, sizeof(value), "%.1f V", l->volt); putInfo(3, value, 1, 1);
-    snprintf(value, sizeof(value), "%.1f A", l->curr); putInfo(4, value, 2, 0);
-    snprintf(value, sizeof(value), "%.0f C", l->mot); putInfo(5, value, 2, 1, l->mot >= 90 ? C_RED : C_TEXT);
-    snprintf(value, sizeof(value), "%.0f C", l->ctr); putInfo(6, value, 3, 0, l->ctr >= 90 ? C_RED : C_TEXT);
-    snprintf(value, sizeof(value), "%u", l->gear); putInfo(7, value, 3, 1, C_BLUE);
+    if (!l) return;
+    lockUi();
+    if (page != PAGE_INFO) { unlockUi(); return; }
+    tft.startWrite(); char value[24];
+    snprintf(value, sizeof(value), "%.0f rpm", l->rpm); putInfo(0, value, C_CYAN);
+    snprintf(value, sizeof(value), "%.1f km/h", l->speed); putInfo(1, value, C_BLUE);
+    snprintf(value, sizeof(value), "%+.2f kW", l->power); putInfo(2, value, l->power < 0 ? C_GREEN : C_AMBER);
+    snprintf(value, sizeof(value), "%.1f V", l->volt); putInfo(3, value, C_BLUE);
+    snprintf(value, sizeof(value), "%.1f A", l->curr); putInfo(4, value, C_CYAN);
+    snprintf(value, sizeof(value), "%.0f ℃", l->mot); putInfo(5, value, l->mot >= 90 ? C_RED : C_TEXT);
+    snprintf(value, sizeof(value), "%.0f ℃", l->ctr); putInfo(6, value, l->ctr >= 90 ? C_RED : C_TEXT);
+    snprintf(value, sizeof(value), "%u", l->gear); putInfo(7, value, C_BLUE);
     if (c) {
-        snprintf(value, sizeof(value), "%.0fV %.1fkW", c->ratedV, c->ratedKW); putInfo(8, value, 4, 0);
-        snprintf(value, sizeof(value), "%.1f km", c->totalKm); putInfo(9, value, 4, 1);
+        snprintf(value, sizeof(value), "%.0fV %.1fkW", c->ratedV, c->ratedKW); putInfo(8, value);
+        snprintf(value, sizeof(value), "%.1f km", c->totalKm); putInfo(9, value, C_GREEN);
     }
     tft.endWrite(); unlockUi();
 }

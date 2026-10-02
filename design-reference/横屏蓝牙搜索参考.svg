@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720" viewBox="0 0 320 240"><title>横屏蓝牙搜索页参考</title><desc>320×240 横屏中文蓝牙搜索页面设计示意，左侧扫描指示，右侧状态说明，底部停止扫描按钮。</desc>
+<style>
+text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", sans-serif; }
+.num { font-family: "Consolas", "DejaVu Sans Mono", monospace; font-weight:600; }
+.label { fill:#97a7ad; font-size:10px; }
+</style>
+<rect width="320" height="240" fill="#080c0a"/>
+<text x="8" y="15" fill="#97a7ad" font-size="9" text-anchor="start">远驱仪表</text>
+<text x="8" y="34" fill="#f4f8f6" font-size="18" text-anchor="start">正在搜索</text>
+<text x="311" y="17" fill="#41dbea" font-size="10" text-anchor="end">蓝牙 搜索中</text>
+<rect x="8" y="48" width="304" height="141" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<g id="scan-indicator">
+<line x1="76.00" y1="93.00" x2="76.00" y2="83.00" stroke="#38b7fa" stroke-width="4" stroke-linecap="round"/>
+<line x1="88.50" y1="96.35" x2="93.50" y2="87.69" stroke="#38b7fa" stroke-width="4" stroke-linecap="round"/>
+<line x1="97.65" y1="105.50" x2="106.31" y2="100.50" stroke="#29dce6" stroke-width="4" stroke-linecap="round"/>
+<line x1="101.00" y1="118.00" x2="111.00" y2="118.00" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+<line x1="97.65" y1="130.50" x2="106.31" y2="135.50" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+<line x1="88.50" y1="139.65" x2="93.50" y2="148.31" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+<line x1="76.00" y1="143.00" x2="76.00" y2="153.00" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+<line x1="63.50" y1="139.65" x2="58.50" y2="148.31" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+<line x1="54.35" y1="130.50" x2="45.69" y2="135.50" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+<line x1="51.00" y1="118.00" x2="41.00" y2="118.00" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+<line x1="54.35" y1="105.50" x2="45.69" y2="100.50" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+<line x1="63.50" y1="96.35" x2="58.50" y2="87.69" stroke="#2c4242" stroke-width="4" stroke-linecap="round"/>
+</g>
+<text x="206" y="107" fill="#f4f8f6" font-size="13" text-anchor="middle">正在查找控制器</text>
+<text x="206" y="129" fill="#97a7ad" font-size="11" text-anchor="middle">扫描约需五秒</text>
+<text x="206" y="150" fill="#97a7ad" font-size="10" text-anchor="middle">请保持控制器通电</text>
+<g><rect x="64" y="202" width="192" height="30" rx="7" fill="#121d1b" stroke="#29dce6" stroke-width=".7"/><text x="160.0" y="221.0" fill="#29dce6" font-size="11" text-anchor="middle">停止扫描</text></g>
+</svg>

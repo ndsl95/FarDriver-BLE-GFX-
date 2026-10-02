@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720" viewBox="0 0 320 240"><title>横屏设备列表页参考</title><desc>320×240 横屏中文蓝牙设备列表设计示意。五行示例设备，首行选中，右侧信号强度，底部重新扫描和连接按钮。</desc>
+<style>
+text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", sans-serif; }
+.num { font-family: "Consolas", "DejaVu Sans Mono", monospace; font-weight:600; }
+.label { fill:#97a7ad; font-size:10px; }
+</style>
+<rect width="320" height="240" fill="#080c0a"/>
+<text x="8" y="15" fill="#97a7ad" font-size="9" text-anchor="start">远驱仪表</text>
+<text x="8" y="34" fill="#f4f8f6" font-size="18" text-anchor="start">选择设备</text>
+<text x="311" y="17" fill="#41dbea" font-size="10" text-anchor="end">发现 5 台设备</text>
+<g>
+<rect x="8" y="46" width="304" height="25" rx="6" fill="#152825" stroke="#29dce6" stroke-width=".7"/>
+<circle cx="18" cy="58.5" r="3" fill="#29dce6"/>
+<text x="29" y="63" fill="#f4f8f6" font-size="12" text-anchor="start">FarDriver_01</text>
+<text x="266" y="63" fill="#97a7ad" font-size="10" text-anchor="end" class="num">-52 dBm</text>
+<rect x="280" y="61" width="4" height="4" rx="1" fill="#29dce6"/>
+<rect x="286" y="58" width="4" height="7" rx="1" fill="#29dce6"/>
+<rect x="292" y="55" width="4" height="10" rx="1" fill="#29dce6"/>
+<rect x="298" y="52" width="4" height="13" rx="1" fill="#29dce6"/>
+</g>
+<g>
+<rect x="8" y="75" width="304" height="25" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<circle cx="18" cy="87.5" r="3" fill="#546662"/>
+<text x="29" y="92" fill="#f4f8f6" font-size="12" text-anchor="start">FarDriver_02</text>
+<text x="266" y="92" fill="#97a7ad" font-size="10" text-anchor="end" class="num">-67 dBm</text>
+<rect x="280" y="90" width="4" height="4" rx="1" fill="#29dce6"/>
+<rect x="286" y="87" width="4" height="7" rx="1" fill="#29dce6"/>
+<rect x="292" y="84" width="4" height="10" rx="1" fill="#29dce6"/>
+<rect x="298" y="81" width="4" height="13" rx="1" fill="#2c3636"/>
+</g>
+<g>
+<rect x="8" y="104" width="304" height="25" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<circle cx="18" cy="116.5" r="3" fill="#546662"/>
+<text x="29" y="121" fill="#f4f8f6" font-size="12" text-anchor="start">FarDriver_03</text>
+<text x="266" y="121" fill="#97a7ad" font-size="10" text-anchor="end" class="num">-72 dBm</text>
+<rect x="280" y="119" width="4" height="4" rx="1" fill="#29dce6"/>
+<rect x="286" y="116" width="4" height="7" rx="1" fill="#29dce6"/>
+<rect x="292" y="113" width="4" height="10" rx="1" fill="#2c3636"/>
+<rect x="298" y="110" width="4" height="13" rx="1" fill="#2c3636"/>
+</g>
+<g>
+<rect x="8" y="133" width="304" height="25" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<circle cx="18" cy="145.5" r="3" fill="#546662"/>
+<text x="29" y="150" fill="#f4f8f6" font-size="12" text-anchor="start">FarDriver_04</text>
+<text x="266" y="150" fill="#97a7ad" font-size="10" text-anchor="end" class="num">-79 dBm</text>
+<rect x="280" y="148" width="4" height="4" rx="1" fill="#29dce6"/>
+<rect x="286" y="145" width="4" height="7" rx="1" fill="#29dce6"/>
+<rect x="292" y="142" width="4" height="10" rx="1" fill="#2c3636"/>
+<rect x="298" y="139" width="4" height="13" rx="1" fill="#2c3636"/>
+</g>
+<g>
+<rect x="8" y="162" width="304" height="25" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<circle cx="18" cy="174.5" r="3" fill="#546662"/>
+<text x="29" y="179" fill="#f4f8f6" font-size="12" text-anchor="start">FarDriver_05</text>
+<text x="266" y="179" fill="#97a7ad" font-size="10" text-anchor="end" class="num">-86 dBm</text>
+<rect x="280" y="177" width="4" height="4" rx="1" fill="#29dce6"/>
+<rect x="286" y="174" width="4" height="7" rx="1" fill="#2c3636"/>
+<rect x="292" y="171" width="4" height="10" rx="1" fill="#2c3636"/>
+<rect x="298" y="168" width="4" height="13" rx="1" fill="#2c3636"/>
+</g>
+<g><rect x="8" y="205" width="146" height="27" rx="7" fill="#121d1b" stroke="#29dce6" stroke-width=".7"/><text x="81.0" y="222.5" fill="#29dce6" font-size="11" text-anchor="middle">重新扫描</text></g>
+<g><rect x="166" y="205" width="146" height="27" rx="7" fill="#121d1b" stroke="#5adf89" stroke-width=".7"/><text x="239.0" y="222.5" fill="#5adf89" font-size="11" text-anchor="middle">连接</text></g>
+</svg>

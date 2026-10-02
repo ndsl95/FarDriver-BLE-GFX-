@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720" viewBox="0 0 320 240">
+<title>远驱横屏仪表盘布局参考</title>
+<desc>320×240 横屏设计示意：左侧速度表盘和大档位，右侧电压、电流、功率及温度，底部电量、油门和操作按钮。所有数值为示例。</desc>
+<style>
+text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", sans-serif; }
+.num { font-family: "Consolas", "DejaVu Sans Mono", monospace; font-weight: 600; }
+.label { fill: #97a7ad; font-size: 10px; }
+</style>
+<rect width="320" height="240" fill="#080c0a"/>
+<g id="bluetooth-status">
+<circle cx="234" cy="13" r="2" fill="#4edd92"/>
+<text x="311" y="17" text-anchor="end" fill="#41dbea" font-size="10">蓝牙 已连接</text>
+</g>
+<g id="speed-gauge">
+<path d="M 29.51,133.85 A 62,62 0 0 1 18.03,74.84" fill="none" stroke="#4cdd70" stroke-width="6"/>
+<path d="M 19.93,69.77 A 62,62 0 0 1 67.30,32.76" fill="none" stroke="#3cabff" stroke-width="6"/>
+<path d="M 72.68,32.15 A 62,62 0 0 1 127.16,57.56" fill="none" stroke="#ffbe24" stroke-width="6"/>
+<path d="M 130.14,62.07 A 62,62 0 0 1 124.49,133.85" fill="none" stroke="#ff575d" stroke-width="6"/>
+<line x1="39.46" y1="125.50" x2="33.34" y2="130.64" stroke="#e7ecee" stroke-width="1"/>
+<line x1="31.97" y1="120.00" x2="27.64" y2="122.50" stroke="#738387" stroke-width="0.6"/>
+<line x1="28.14" y1="111.79" x2="23.44" y2="113.50" stroke="#738387" stroke-width="0.6"/>
+<line x1="28.74" y1="102.51" x2="20.87" y2="103.90" stroke="#e7ecee" stroke-width="1"/>
+<line x1="25.00" y1="94.00" x2="20.00" y2="94.00" stroke="#738387" stroke-width="0.6"/>
+<line x1="25.79" y1="84.97" x2="20.87" y2="84.10" stroke="#738387" stroke-width="0.6"/>
+<line x1="30.96" y1="77.24" x2="23.44" y2="74.50" stroke="#e7ecee" stroke-width="1"/>
+<line x1="31.97" y1="68.00" x2="27.64" y2="65.50" stroke="#738387" stroke-width="0.6"/>
+<line x1="37.17" y1="60.58" x2="33.34" y2="57.36" stroke="#738387" stroke-width="0.6"/>
+<line x1="45.50" y1="56.46" x2="40.36" y2="50.34" stroke="#e7ecee" stroke-width="1"/>
+<line x1="51.00" y1="48.97" x2="48.50" y2="44.64" stroke="#738387" stroke-width="0.6"/>
+<line x1="59.21" y1="45.14" x2="57.50" y2="40.44" stroke="#738387" stroke-width="0.6"/>
+<line x1="68.49" y1="45.74" x2="67.10" y2="37.87" stroke="#e7ecee" stroke-width="1"/>
+<line x1="77.00" y1="42.00" x2="77.00" y2="37.00" stroke="#738387" stroke-width="0.6"/>
+<line x1="86.03" y1="42.79" x2="86.90" y2="37.87" stroke="#738387" stroke-width="0.6"/>
+<line x1="93.76" y1="47.96" x2="96.50" y2="40.44" stroke="#e7ecee" stroke-width="1"/>
+<line x1="103.00" y1="48.97" x2="105.50" y2="44.64" stroke="#738387" stroke-width="0.6"/>
+<line x1="110.42" y1="54.17" x2="113.64" y2="50.34" stroke="#738387" stroke-width="0.6"/>
+<line x1="114.54" y1="62.50" x2="120.66" y2="57.36" stroke="#e7ecee" stroke-width="1"/>
+<line x1="122.03" y1="68.00" x2="126.36" y2="65.50" stroke="#738387" stroke-width="0.6"/>
+<line x1="125.86" y1="76.21" x2="130.56" y2="74.50" stroke="#738387" stroke-width="0.6"/>
+<line x1="125.26" y1="85.49" x2="133.13" y2="84.10" stroke="#e7ecee" stroke-width="1"/>
+<line x1="129.00" y1="94.00" x2="134.00" y2="94.00" stroke="#738387" stroke-width="0.6"/>
+<line x1="128.21" y1="103.03" x2="133.13" y2="103.90" stroke="#738387" stroke-width="0.6"/>
+<line x1="123.04" y1="110.76" x2="130.56" y2="113.50" stroke="#e7ecee" stroke-width="1"/>
+<line x1="122.03" y1="120.00" x2="126.36" y2="122.50" stroke="#738387" stroke-width="0.6"/>
+<line x1="116.83" y1="127.42" x2="120.66" y2="130.64" stroke="#738387" stroke-width="0.6"/>
+<line x1="67.33" y1="49.03" x2="62.29" y2="25.56" stroke="#ff545d" stroke-width="5" stroke-linecap="round"/>
+<line x1="67.33" y1="49.03" x2="62.29" y2="25.56" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+<text class="num" x="77" y="94" text-anchor="middle" fill="#35bdf6" font-size="28">68</text>
+<text x="77" y="111" text-anchor="middle" class="label" font-size="9">km/h</text>
+</g>
+<g id="gear">
+<text x="51" y="153" text-anchor="middle" class="label">档位</text>
+<text class="num" x="91" y="168" text-anchor="middle" fill="#ffffff" font-size="40">3</text>
+</g>
+<g id="metrics">
+<g><rect x="158" y="35" width="73" height="55" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/><rect x="165" y="39" width="59" height="2" rx="1" fill="#38b7fa"/><text class="num" x="194.5" y="64" text-anchor="middle" fill="#38b7fa" font-size="20">92.4</text><text x="194.5" y="80" text-anchor="middle" class="label">电压 / V</text></g>
+<g><rect x="237" y="35" width="73" height="55" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/><rect x="244" y="39" width="59" height="2" rx="1" fill="#29dce6"/><text class="num" x="273.5" y="64" text-anchor="middle" fill="#29dce6" font-size="20">35.0</text><text x="273.5" y="80" text-anchor="middle" class="label">电流 / A</text></g>
+<g><rect x="158" y="99" width="48" height="63" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/><rect x="165" y="103" width="34" height="2" rx="1" fill="#5adf89"/><text class="num" x="182.0" y="128" text-anchor="middle" fill="#5adf89" font-size="15">3.23</text><text x="182.0" y="152" text-anchor="middle" class="label">功率 / kW</text></g>
+<g><rect x="210" y="99" width="48" height="63" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/><rect x="217" y="103" width="34" height="2" rx="1" fill="#f4bd43"/><text class="num" x="234.0" y="128" text-anchor="middle" fill="#f4bd43" font-size="17">38</text><text x="234.0" y="152" text-anchor="middle" class="label">控温 / ℃</text></g>
+<g><rect x="262" y="99" width="48" height="63" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/><rect x="269" y="103" width="34" height="2" rx="1" fill="#ff6976"/><text class="num" x="286.0" y="128" text-anchor="middle" fill="#ff6976" font-size="17">45</text><text x="286.0" y="152" text-anchor="middle" class="label">电温 / ℃</text></g>
+</g>
+<g><rect x="4" y="180" width="152" height="25" rx="5" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/><text x="12" y="196" class="label">电量</text><rect x="40" y="190" width="73" height="6" rx="3" fill="#2c3636"/><rect x="40" y="190" width="55.48" height="6" rx="3" fill="#45d875"/><text class="num" x="150" y="196" text-anchor="end" fill="#f6f8f7" font-size="10">76%</text></g>
+<g><rect x="164" y="180" width="152" height="25" rx="5" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/><text x="172" y="196" class="label">油门</text><rect x="200" y="190" width="73" height="6" rx="3" fill="#2c3636"/><rect x="200" y="190" width="30.66" height="6" rx="3" fill="#ffb32c"/><text class="num" x="310" y="196" text-anchor="end" fill="#f6f8f7" font-size="10">42%</text></g>
+<g><rect x="4" y="211" width="104" height="23" rx="7" fill="#121d1b" stroke="#ff5059" stroke-width=".8"/><text x="56.0" y="227" text-anchor="middle" fill="#ff5059" font-size="11">断开连接</text></g>
+<g><rect x="208" y="211" width="108" height="23" rx="7" fill="#121d1b" stroke="#56d883" stroke-width=".8"/><text x="262.0" y="227" text-anchor="middle" fill="#56d883" font-size="11">详细信息</text></g>
+</svg>

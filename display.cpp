@@ -14,7 +14,7 @@ extern FT6336G touchPanel;
 void display_begin(void)
 {
     tft.init();
-    tft.setRotation(0);
+    tft.setRotation(1); // 320x240 landscape
 
     /* ILI9341V 屏需 INVON 才能正常显色 (Setup400 未定义 TFT_INVERSION_ON) */
     tft.invertDisplay(true);
@@ -46,8 +46,9 @@ bool touchPoll(int16_t *x, int16_t *y, bool *pressed)
 {
     uint16_t tx = 0, ty = 0;
     bool t = touchPanel.getTouch(&tx, &ty);
-    *x = tx;
-    *y = ty;
+    // Raw portrait (0..239, 0..319) -> rotation 1 (0..319, 0..239).
+    *x = ty;
+    *y = 239 - tx;
     *pressed = t;
     return true;
 }

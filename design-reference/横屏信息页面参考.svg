@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720" viewBox="0 0 320 240"><title>横屏详细信息页参考</title><desc>320×240 横屏中文信息页设计示意，数值为展示示例。三列数据卡、底部里程和顶部返回按钮。</desc>
+<style>
+text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", sans-serif; }
+.num { font-family: "Consolas", "DejaVu Sans Mono", monospace; font-weight:600; }
+.label { fill:#97a7ad; font-size:10px; }
+</style>
+<rect width="320" height="240" fill="#080c0a"/>
+<text x="8" y="14" fill="#97a7ad" font-size="9" text-anchor="start">远驱仪表</text>
+<text x="8" y="33" fill="#f4f8f6" font-size="18" text-anchor="start">详细信息</text>
+<g><rect x="260" y="8" width="52" height="30" rx="7" fill="#121d1b" stroke="#29dce6" stroke-width=".7"/><text x="286.0" y="27.0" fill="#29dce6" font-size="11" text-anchor="middle">返回</text></g>
+<g>
+<rect x="8" y="48" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="15" y="62" fill="#97a7ad" font-size="10" text-anchor="start">转速</text>
+<text x="99" y="83" fill="#29dce6" font-size="14" text-anchor="end" class="num">2500 rpm</text>
+</g>
+<g>
+<rect x="111" y="48" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="118" y="62" fill="#97a7ad" font-size="10" text-anchor="start">速度</text>
+<text x="202" y="83" fill="#38b7fa" font-size="14" text-anchor="end" class="num">68.0 km/h</text>
+</g>
+<g>
+<rect x="214" y="48" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="221" y="62" fill="#97a7ad" font-size="10" text-anchor="start">功率</text>
+<text x="305" y="83" fill="#5adf89" font-size="14" text-anchor="end" class="num">3.23 kW</text>
+</g>
+<g>
+<rect x="8" y="101" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="15" y="115" fill="#97a7ad" font-size="10" text-anchor="start">电压</text>
+<text x="99" y="136" fill="#38b7fa" font-size="14" text-anchor="end" class="num">92.4 V</text>
+</g>
+<g>
+<rect x="111" y="101" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="118" y="115" fill="#97a7ad" font-size="10" text-anchor="start">电流</text>
+<text x="202" y="136" fill="#29dce6" font-size="14" text-anchor="end" class="num">35.0 A</text>
+</g>
+<g>
+<rect x="214" y="101" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="221" y="115" fill="#97a7ad" font-size="10" text-anchor="start">档位</text>
+<text x="305" y="136" fill="#ffffff" font-size="22" text-anchor="end" class="num">3</text>
+</g>
+<g>
+<rect x="8" y="154" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="15" y="168" fill="#97a7ad" font-size="10" text-anchor="start">电机温度</text>
+<text x="99" y="189" fill="#ff6976" font-size="14" text-anchor="end" class="num">45 ℃</text>
+</g>
+<g>
+<rect x="111" y="154" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="118" y="168" fill="#97a7ad" font-size="10" text-anchor="start">控制器温度</text>
+<text x="202" y="189" fill="#f4bd43" font-size="14" text-anchor="end" class="num">38 ℃</text>
+</g>
+<g>
+<rect x="214" y="154" width="98" height="47" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="221" y="168" fill="#97a7ad" font-size="10" text-anchor="start">额定参数</text>
+<text x="305" y="189" fill="#f4f8f6" font-size="14" text-anchor="end" class="num">96V / 5kW</text>
+</g>
+<rect x="8" y="208" width="304" height="24" rx="6" fill="#121d1b" stroke="#2b3736" stroke-width=".7"/>
+<text x="16" y="224" fill="#97a7ad" font-size="10" text-anchor="start">累计里程</text>
+<text x="302" y="225" fill="#5adf89" font-size="13" text-anchor="end" class="num">123.4 km</text>
+</svg>

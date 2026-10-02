@@ -1,3 +1,22 @@
+> 当前分支为 **横屏屏幕版**，提供 320×240 中文横屏界面。页面、触摸转换及烧录说明请查看 [LANDSCAPE_UI.md](LANDSCAPE_UI.md)。竖屏客户版本保留在 `越野车+加大档位定制版` 分支。
+
+## 横屏页面实机截图
+
+以下 PNG 直接从开发板 TFT 读取。仪表及信息页数值、设备列表内容为布局验证的示例数据；正式固件不包含演示功能，启动后执行真实 BLE 搜索。
+
+| 主仪表盘 | 详细信息 |
+| --- | --- |
+| ![横屏主仪表盘](screenshots/dashboard.png) | ![横屏详细信息](screenshots/information.png) |
+
+| 蓝牙搜索 | 设备列表 |
+| --- | --- |
+| ![横屏蓝牙搜索](screenshots/scan.png) | ![横屏设备列表](screenshots/devices.png) |
+
+其他验证截图：[空列表](screenshots/empty.png)、[零速](screenshots/zero.png)、[回充与高温](screenshots/regen.png)、[三位数速度及边界数值](screenshots/maximum.png)。
+
+横屏 SVG 参考图见 [design-reference](design-reference)。
+
+
 # FarDriver BLE 仪表盘
 
 南京远驱 (FarDriver) 控制器 BLE 仪表盘，基于 [EKSR_Instrument](https://github.com/magicmicros/EKSR_Instrument) 项目移植适配，运行在 ESP32-S3 一体板上。
