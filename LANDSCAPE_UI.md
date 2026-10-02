@@ -1,7 +1,7 @@
 # 320×240 横屏版本
 
 本目录从竖屏客户版 `FarDriver-BLE-GFX--main` 复制后修改，原目录保留。
-GitHub 分支为 `横屏屏幕版`，由 `越野车+加大档位定制版` 分支派生。
+GitHub 分支为 `横屏屏幕版`，由 `竖屏版` 分支派生。
 `PORTRAIT_SOURCE_MANIFEST.json` 记录复制时每个源文件的 SHA-256，便于核对原版。
 
 ## 布局
