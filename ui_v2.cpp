@@ -7,6 +7,7 @@
  */
 #include "ui_gfx.h"
 #include "ft6336g.h"
+#include "ui_font_cn.h"   // 中文字库 (vlw 平滑字体, 由工具脚本从系统字体生成)
 #include <TFT_eSPI.h>
 #include <Arduino.h>
 #include <math.h>
@@ -55,12 +56,12 @@ struct Button {
     bool outline;
 };
 
-const Button BTN_SCAN_CANCEL = {20, 266, 200, 44, "STOP SCAN", C_CYAN, true};
-const Button BTN_RESCAN      = {8, 270, 104, 42, "RESCAN", C_CYAN, true};
-const Button BTN_CONNECT     = {120, 270, 112, 42, "CONNECT", C_RED, true};
-const Button BTN_DISCONNECT  = {8, 291, 104, 23, "DISCONNECT", C_RED, true};
-const Button BTN_DETAILS     = {120, 291, 112, 23, "SYSTEM INFO", C_GREEN, true};
-const Button BTN_BACK        = {176, 8, 56, 36, "BACK", C_CYAN, true};
+const Button BTN_SCAN_CANCEL = {20, 266, 200, 44, "停止扫描", C_CYAN, true};
+const Button BTN_RESCAN      = {8, 270, 104, 42, "重新扫描", C_CYAN, true};
+const Button BTN_CONNECT     = {120, 270, 112, 42, "连接", C_RED, true};
+const Button BTN_DISCONNECT  = {8, 291, 104, 23, "断开连接", C_RED, true};
+const Button BTN_DETAILS     = {120, 291, 112, 23, "系统信息", C_GREEN, true};
+const Button BTN_BACK        = {176, 8, 56, 36, "返回", C_CYAN, true};
 
 Page page = PAGE_SCAN;
 SemaphoreHandle_t uiMutex = nullptr;
@@ -93,6 +94,31 @@ void text(const char *value, int16_t x, int16_t y, uint16_t colour,
     tft.drawString(value, x, y, 1);
 }
 
+/* ---- 中文文案绘制 ----
+ * TFT_eSPI 的内置字体只有 ASCII, 汉字必须用平滑字体(vlw)按 UTF-8 绘制,
+ * 字库见 ui_font_cn.h。平滑字体按自身字号渲染(不受 setTextSize 影响),
+ * 且用 1 参数 setTextColor 时是透明叠加, 所以画完立即卸载, 避免影响
+ * 随后用内置字体绘制的数值。 */
+const uint8_t *const FONT_SMALL = uiFontCN12;   // 卡片/行内小标签
+const uint8_t *const FONT_BIG   = uiFontCN16;   // 标题/按钮/状态栏
+
+void textCN(const char *value, int16_t x, int16_t y, uint16_t colour,
+            const uint8_t *font, uint8_t datum = TL_DATUM) {
+    tft.loadFont(font);
+    tft.setTextDatum(datum);
+    tft.setTextColor(colour);          // 透明背景, 直接叠在已画好的底色上
+    tft.drawString(value, x, y);
+    tft.unloadFont();
+}
+
+/* 测量某段中文在当前字库下的像素宽度 (布局用) */
+int16_t widthCN(const char *value, const uint8_t *font) {
+    tft.loadFont(font);
+    int16_t w = tft.textWidth(value);
+    tft.unloadFont();
+    return w;
+}
+
 void panel(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t fill = C_PANEL) {
     tft.fillRoundRect(x, y, w, h, 8, fill);
     tft.drawRoundRect(x, y, w, h, 8, C_LINE);
@@ -104,7 +130,9 @@ void drawButton(const Button &b, bool pressed = false) {
     uint16_t fg = pressed || !b.outline ? C_TEXT : b.accent;
     tft.fillRoundRect(b.x, b.y, b.w, b.h, 8, fill);
     tft.drawRoundRect(b.x, b.y, b.w, b.h, 8, stroke);
-    text(b.label, b.x + b.w / 2, b.y + b.h / 2, fg, 1, MC_DATUM);
+    /* 矮按钮(23px)用 12px 字, 其余用 16px 字 */
+    textCN(b.label, b.x + b.w / 2, b.y + b.h / 2, fg,
+           b.h >= 30 ? FONT_BIG : FONT_SMALL, MC_DATUM);
 }
 
 bool contains(const Button &b, int16_t x, int16_t y) {
@@ -114,7 +142,7 @@ bool contains(const Button &b, int16_t x, int16_t y) {
 void header(const char *title, const char *eyebrow = "FARDRIVER") {
     tft.fillRect(0, 0, SCREEN_W, 50, C_BG);
     text(eyebrow, 8, 7, C_MUTED, 1);
-    text(title, 8, 22, C_TEXT, 2);
+    textCN(title, 8, 16, C_TEXT, FONT_BIG);      // 16px 汉字: 占 16..38
     tft.drawFastHLine(8, 49, 224, C_LINE);
 }
 
@@ -143,10 +171,10 @@ void drawDevice(int index) {
 void drawListPage() {
     page = PAGE_LIST;
     tft.fillScreen(C_BG);
-    header("SELECT DEVICE");
+    header("选择设备");
     if (!deviceCount) {
-        text("NO CONTROLLER FOUND", 120, 125, C_MUTED, 1, MC_DATUM);
-        text("Move closer and scan again", 120, 147, C_MUTED, 1, MC_DATUM);
+        textCN("未找到控制器", 120, 125, C_MUTED, FONT_SMALL, MC_DATUM);
+        textCN("请靠近控制器后重新扫描", 120, 147, C_MUTED, FONT_SMALL, MC_DATUM);
     } else {
         for (int i = 0; i < deviceCount; ++i) drawDevice(i);
     }
@@ -272,7 +300,7 @@ void metricCard(int index, const char *label, uint16_t accent) {
     int x = 4 + index * 47;
     panel(x, 165, 43, 48, C_PANEL);
     tft.fillRect(x + 6, 169, 31, 2, accent);
-    text(label, x + 21, 204, C_MUTED, 1, BC_DATUM);
+    textCN(label, x + 21, 207, C_MUTED, FONT_SMALL, BC_DATUM);   // 12px 汉字占 190..207
 }
 
 void resetDashCache();
@@ -323,13 +351,13 @@ void infoRow(const char *label, int row, int col) {
     int x = col ? 122 : 8;
     int y = 56 + row * 49;
     panel(x, y, 110, 43);
-    text(label, x + 7, y + 6, C_MUTED, 1);
+    textCN(label, x + 7, y + 4, C_MUTED, FONT_SMALL);   // 12px 汉字占 y+4..y+21
 }
 
 void putInfo(int slot, const char *value, int row, int col, uint16_t colour = C_TEXT) {
     int x = col ? 122 : 8;
     int y = 56 + row * 49;
-    updateValue(infoCache[slot], sizeof(infoCache[slot]), value, x + 5, y + 18, 100, 21,
+    updateValue(infoCache[slot], sizeof(infoCache[slot]), value, x + 5, y + 23, 100, 16,
                 colour, 1, TR_DATUM);
 }
 
@@ -387,10 +415,10 @@ void uiShowScan(void) {
     page = PAGE_SCAN;
     tft.startWrite();
     tft.fillScreen(C_BG);
-    header("SEARCHING");
+    header("搜索中");
     panel(20, 78, 200, 154);
-    text("Looking for controllers", 120, 190, C_TEXT, 1, MC_DATUM);
-    text("This usually takes 5 seconds", 120, 211, C_MUTED, 1, MC_DATUM);
+    textCN("正在搜索控制器", 120, 190, C_TEXT, FONT_SMALL, MC_DATUM);
+    textCN("大约需要 5 秒", 120, 211, C_MUTED, FONT_SMALL, MC_DATUM);
     drawButton(BTN_SCAN_CANCEL);
     tft.endWrite();
     lastSpinnerMs = 0;
@@ -425,13 +453,25 @@ void uiShowDash(void) {
     lockUi(); tft.startWrite();
     page = PAGE_DASH;
     tft.fillScreen(C_BG);
-    // Compact top status bar, matching the supplied READY / SPORT / BT language.
-    text("READY", 8, 7, C_GREEN, 1);
-    tft.drawFastVLine(59, 5, 17, C_LINE);
-    text("SPORT", 68, 7, C_AMBER, 1);
-    tft.drawFastVLine(119, 5, 17, C_LINE);
-    text("BT", 128, 7, C_BLUE, 1);
-    text("CONNECTED", 151, 7, C_CYAN, 1);
+    /* 顶部状态栏: 左侧「就绪 | 运动」, 右侧「蓝牙 已连接」整组靠右对齐到屏幕右侧 */
+    {
+        const int rightEdge = 232;
+        const int wReady = widthCN("就绪", FONT_BIG);
+        const int wSport = widthCN("运动", FONT_BIG);
+        const int wBt    = widthCN("蓝牙", FONT_BIG);
+        const int wConn  = widthCN("已连接", FONT_BIG);
+
+        textCN("就绪", 8, 3, C_GREEN, FONT_BIG);
+        const int xSep1 = 8 + wReady + 8;
+        tft.drawFastVLine(xSep1, 3, 20, C_LINE);
+        textCN("运动", xSep1 + 8, 3, C_AMBER, FONT_BIG);
+
+        const int xConn = rightEdge - wConn;      // 右对齐: 右边缘贴 232
+        const int xBt   = xConn - 6 - wBt;
+        tft.drawFastVLine(xBt - 8, 3, 20, C_LINE);
+        textCN("蓝牙", xBt, 3, C_BLUE, FONT_BIG);
+        textCN("已连接", xConn, 3, C_CYAN, FONT_BIG);
+    }
     tft.drawFastHLine(4, 26, 232, C_LINE);
 
     drawGaugeFace();
@@ -444,21 +484,21 @@ void uiShowDash(void) {
     lastSpeedVisible = true;
     drawGaugePointer(lastGaugeAngle);
     panel(79, 133, 82, 27, C_PANEL_2);
-    text("GEAR", 88, 143, C_MUTED, 1);
+    textCN("档位", 88, 141, C_MUTED, FONT_SMALL);
     text("-", 149, 146, C_TEXT, 2, MR_DATUM);
 
-    metricCard(0, "VOLT", C_BLUE);
-    metricCard(1, "AMPS", C_CYAN);
-    metricCard(2, "POWER", C_GREEN);
-    metricCard(3, "CTRL", C_AMBER);
-    metricCard(4, "MOTOR", C_RED);
+    metricCard(0, "电压", C_BLUE);
+    metricCard(1, "电流", C_CYAN);
+    metricCard(2, "功率", C_GREEN);
+    metricCard(3, "控温", C_AMBER);
+    metricCard(4, "机温", C_RED);
 
     panel(4, 219, 232, 30, C_PANEL);
-    text("THROTTLE", 10, 224, C_MUTED, 1);
+    textCN("油门", 10, 224, C_MUTED, FONT_SMALL);
     tft.fillRoundRect(62, 229, 122, 8, 3, C_LINE);
     text("--%", 229, 224, C_TEXT, 1, TR_DATUM);
     panel(4, 254, 232, 30, C_PANEL);
-    text("BATTERY", 10, 259, C_MUTED, 1);
+    textCN("电量", 10, 259, C_MUTED, FONT_SMALL);
     tft.fillRoundRect(62, 264, 122, 8, 3, C_LINE);
     text("--%", 229, 259, C_TEXT, 1, TR_DATUM);
     drawButton(BTN_DISCONNECT); drawButton(BTN_DETAILS);
@@ -498,15 +538,15 @@ void uiDashUpdate(const DashData *d) {
         drawGaugePointer(lastGaugeAngle);
     }
     snprintf(value, sizeof(value), "%.1f", d->volt);
-    updateValue(voltCache, sizeof(voltCache), value, 8, 176, 35, 19, C_BLUE, 1, MC_DATUM);
+    updateValue(voltCache, sizeof(voltCache), value, 8, 174, 35, 16, C_BLUE, 1, MC_DATUM);
     snprintf(value, sizeof(value), "%.1f", d->curr);
-    updateValue(currCache, sizeof(currCache), value, 55, 176, 35, 19, C_CYAN, 1, MC_DATUM);
+    updateValue(currCache, sizeof(currCache), value, 55, 174, 35, 16, C_CYAN, 1, MC_DATUM);
     snprintf(value, sizeof(value), "%.2f", d->power);
-    updateValue(powerCache, sizeof(powerCache), value, 102, 176, 35, 19, d->power < 0 ? C_GREEN : C_AMBER, 1, MC_DATUM);
+    updateValue(powerCache, sizeof(powerCache), value, 102, 174, 35, 16, d->power < 0 ? C_GREEN : C_AMBER, 1, MC_DATUM);
     snprintf(value, sizeof(value), "%d", d->ctr);
-    updateValue(ctrCache, sizeof(ctrCache), value, 149, 176, 35, 19, d->ctr >= 90 ? C_RED : C_TEXT, 1, MC_DATUM);
+    updateValue(ctrCache, sizeof(ctrCache), value, 149, 174, 35, 16, d->ctr >= 90 ? C_RED : C_TEXT, 1, MC_DATUM);
     snprintf(value, sizeof(value), "%d", d->mot);
-    updateValue(motCache, sizeof(motCache), value, 196, 176, 35, 19, d->mot >= 90 ? C_RED : C_TEXT, 1, MC_DATUM);
+    updateValue(motCache, sizeof(motCache), value, 196, 174, 35, 16, d->mot >= 90 ? C_RED : C_TEXT, 1, MC_DATUM);
     snprintf(value, sizeof(value), "%u%%", d->thr);
     updateValue(thrCache, sizeof(thrCache), value, 194, 224, 37, 16, C_TEXT, 1);
     if (lastThrottle != d->thr) {
@@ -534,9 +574,9 @@ void uiShowInfo(void) {
     lockUi(); tft.startWrite();
     page = PAGE_INFO;
     tft.fillScreen(C_BG);
-    header("SYSTEM INFO");
+    header("系统信息");
     drawButton(BTN_BACK);
-    const char *labels[10] = {"RPM", "SPEED", "POWER", "VOLTAGE", "CURRENT", "MOTOR", "CTRL", "GEAR", "RATED", "DISTANCE"};
+    const char *labels[10] = {"转速", "速度", "功率", "电压", "电流", "电机", "控制器", "档位", "额定", "里程"};
     for (int i = 0; i < 10; ++i) infoRow(labels[i], i / 2, i % 2);
     resetInfoCache();
     tft.endWrite(); unlockUi();
