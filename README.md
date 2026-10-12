@@ -204,27 +204,35 @@ Arduino/libraries/TFT_eSPI/
 
 ## 运行时数据映射说明
 
-当前 `message_handler` 中的地址映射基于对 EKSR_Instrument 原版代码的分析，属于**候选映射值**，需要通过实测验证和调整。
+`message_handler` 中的映射依据 [jackhumbert/fardriver-controllers](https://github.com/jackhumbert/fardriver-controllers) 的 `fardriver.hpp`（`FardriverData` 结构体，**小端**），并与实测帧和已验证读取器 [bobecek79/ESP32-Fardriver-BLE-Reader](https://github.com/bobecek79/ESP32-Fardriver-BLE-Reader) 三方核对一致。
 
-### 当前映射表
+### 映射表（已核实）
 
-| 数据 | 内存地址 | 帧地址 (id) | 系数 | 单位 | 状态 |
-|------|----------|-------------|------|------|------|
-| 电压 | 0xE2 | id=0 | x0.1 | V | 候选 |
-| 油门 | 0xE3 | id=0 | x1 | - | 候选 |
-| 控制器温度 | 0xE8 | id=1 | x0.1 | °C | 候选 |
-| 电机温度 | 0xE9 | id=1 | x0.1 | °C | 候选 |
-| 档位 | 0xEB | id=1 | x1 | - | 候选 |
-| 转速 RPM | 0xEC | id=1 | x1 | RPM | 候选 |
-| 速度 | 0xEE | id=2 | x0.1 | km/h | 候选 |
-| 功率 | 0xEF | id=2 | x0.01 | kW | 候选 |
+| 数据 | 地址 | payload 偏移 | 类型/系数 | 单位 |
+|------|------|--------------|-----------|------|
+| 电池电压 | 0xE8 | [0..1] | int16 LE / 10 | V |
+| 线电流 | 0xE8 | [4..5] | int16 LE / 4（负=回充） | A |
+| 油门深度 | 0xE8 | [10..11] | int16 LE | - |
+| 档位 | 0xE2 | [0] bits 2-3 | bits + 1 | 档 |
+| 速度测量值 | 0xE2 | [6..7] | int16 LE | - |
+| 故障位组 1 / 2 | 0xE2 | [2] / [3] | bitfield | - |
+| 控制器(MOS)温度 | 0xD6 | [10..11] | int16 LE | °C |
+| 电机温度 | 0xF4 | [0..1] | int16 LE | °C |
+| 电量 SOC | 0xF4 | [3] | uint8 | % |
+
+速度换算：`速度测量值 × 4 / 极对数`（`config.h` 的 `MOTOR_POLE_PAIRS`）= 轮转速，再乘 `WHEEL_CIRCUMFERENCE_M` 折算 km/h。
+
+### 两个容易踩的坑
+
+1. **必须按"查表地址"分派，不能按 id 分派**。同一地址会以多个 id 轮转上报（0xE2 出现在 id 0/7/14/21/28…，0xE8 出现在 id 1/8/15/22…），按 id 分派会有 7/8 的相关帧被漏掉。
+2. **所有多字节字段都是小端**。按大端读电压会把 84.7 V 读成 2022.7 V，再被范围检查丢弃，屏幕电压就恒为 0.0。
 
 ### 如何验证映射
 
 1. 编译上传固件后，打开串口监视器 (115200 波特率)
-2. 连接 FarDriver 控制器后，观察串口输出的 `[FD]` 调试信息
-3. 对照控制器的实际参数 (如用原厂 App 显示的数据)，确认每个地址对应的实际数据
-4. 根据实测结果修改 `FarDriver_BLE.ino` 中 `message_handler` 的地址映射和系数
+2. 连接控制器后看 `[DIAG]` 里的 `fd_rx` / `drx` / `last{id=.. addr=.. crc=.. hex=..}`：`drx` 持续 >0 表示数据流正常，`crc=OK` 表示帧完整
+3. 用 `last{...}` 的原始 hex 对照上表逐字节核对，或与原厂 App 显示的数据比对
+4. 若某几项恒为 0 或数值明显不对，按上表调整 `FarDriver_BLE_GFX.ino` 中 `message_handler` 的偏移与系数
 
 ## 开发板设置
 
