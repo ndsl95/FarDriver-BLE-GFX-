@@ -5,6 +5,7 @@
 
 #include "nimble.h"
 #include "config.h"
+#include "fardriver_protocol.h"   // fdComputeCRC (帧/写命令共用的 CRC-16/IBM)
 #include <NimBLEDevice.h>
 
 volatile bool is_connected = false;
@@ -120,12 +121,31 @@ static ScanCallbacks scanCB;
 // ============================================================
 static int notify_count = 0;
 
+// 接收诊断统计 (只在 BLE 回调里累加, 由 diagTask 打印,
+// 避免在 BLE 线程里占用 Serial 与主循环抢占)
+static volatile uint32_t rx_total = 0;    // 通知帧总数
+static volatile uint32_t rx_badlen = 0;   // 长度 != 16 的帧数
+static uint8_t  rx_last_frame[16] = {0};  // 最近一帧原始数据
+static volatile uint8_t rx_last_len = 0;  // 最近一帧长度
+
 void nimble_reset_notify_count(void) {
   notify_count = 0;
+  rx_total = 0;
+  rx_badlen = 0;
+  rx_last_len = 0;
 }
 
 int nimble_get_notify_count(void) {
   return notify_count;
+}
+
+uint32_t nimble_get_rx_total(void)  { return rx_total; }
+uint32_t nimble_get_rx_badlen(void) { return rx_badlen; }
+
+uint8_t nimble_get_last_frame(uint8_t *buf) {
+  uint8_t n = rx_last_len;
+  if (n && buf) memcpy(buf, rx_last_frame, 16);
+  return n;
 }
 
 // 通知回调抑制标志 (由 display.cpp 在 Save 期间设置)
@@ -141,6 +161,17 @@ static void notifyCB(NimBLERemoteCharacteristic* pChar, uint8_t* pData,
   notify_count++;
   last_notify_ms = millis();   // 记录最新数据时间 (看门狗)
 
+  /* 诊断统计: 记录帧数与最近一帧原始内容 (不打印, 避免 BLE 线程抢 Serial)
+   * 注: 用显式读-改-写代替 volatile 上的 ++ (C++20 已弃用该写法) */
+  rx_total = rx_total + 1u;
+  if (length >= 16) {
+    memcpy(rx_last_frame, pData, 16);
+    rx_last_len = 16;
+  } else {
+    rx_badlen = rx_badlen + 1u;
+    rx_last_len = (uint8_t)length;
+  }
+
   // 帧 hex 日志已关闭, 避免 BLE 线程与主循环的 Serial 竞争产生乱码
   if (length == 16) {
     message_handler(pData);
@@ -155,6 +186,81 @@ static NimBLERemoteService* pSvc = nullptr;
 static NimBLERemoteCharacteristic* pRemChar = nullptr;   // notify 特征 (接收数据)
 static NimBLERemoteCharacteristic* pWriteChar = nullptr;  // write 特征 (发送命令)
 static NimBLEClient* pClient = nullptr;
+
+bool nimble_notify_ready(void) { return pRemChar != nullptr; }
+bool nimble_write_ready(void)  { return pWriteChar != nullptr; }
+
+// ============================================================
+//  特性发现与订阅 (两条连接路径共用)
+//
+//  数据/命令通道固定为 FFEC —— 与实测可用的 EKSR_Instrument 原版、
+//  bobecek79/ESP32-Fardriver-BLE-Reader 一致:
+//    - notify: 控制器 16 字节状态帧从这里上报
+//    - write : 「启动数据流/心跳」命令也从这同一个特性下发
+//  找不到 FFEC 时才退化为「第一个可通知 / 可写特性」。
+//
+//  (修复: 原实现取枚举到的第一个可 notify 特性作为数据通道, 并可能把命令
+//   写到 FFEF 等其它特性上; 一旦 FFE0 下有多个特性, 就会订阅到错误的通道,
+//   表现为"已连接但一帧数据都收不到")
+// ============================================================
+static bool setupCharacteristics(void) {
+  if (!pSvc) return false;
+
+  auto chars = pSvc->getCharacteristics(true);
+  Serial.print(F("Found "));
+  Serial.print(chars.size());
+  Serial.println(F(" characteristics:"));
+  for (auto c : chars) {
+    Serial.print(F("  "));
+    Serial.print(c->getUUID().toString().c_str());
+    Serial.print(F(" n=")); Serial.print(c->canNotify());
+    Serial.print(F(" r=")); Serial.print(c->canRead());
+    Serial.print(F(" w=")); Serial.print(c->canWrite());
+    Serial.print(F(" wn=")); Serial.println(c->canWriteNoResponse());
+  }
+
+  // ---- notify 通道: 优先 FFEC ----
+  NimBLERemoteCharacteristic *notifyChar = pSvc->getCharacteristic(BLE_CHAR_UUID);
+  if (notifyChar && !notifyChar->canNotify()) {
+    Serial.print(F("  ")); Serial.print(BLE_CHAR_UUID);
+    Serial.println(F(" is not notify-capable, looking for another"));
+    notifyChar = nullptr;
+  }
+  if (!notifyChar) {
+    for (auto c : chars) {
+      if (c->canNotify()) { notifyChar = c; break; }
+    }
+  }
+  if (!notifyChar) {
+    Serial.println(F("No notify characteristic found!"));
+    return false;
+  }
+  Serial.print(F("Notify char: "));
+  Serial.println(notifyChar->getUUID().toString().c_str());
+  if (!notifyChar->subscribe(true, notifyCB)) {
+    Serial.println(F("Subscribe FAILED"));
+    return false;
+  }
+  Serial.println(F("Subscribed OK"));
+  pRemChar = notifyChar;
+
+  // ---- write 通道: 优先 FFEC, 其次 FFEF, 最后任意可写特性 ----
+  NimBLERemoteCharacteristic *writeChar = pSvc->getCharacteristic(BLE_CHAR_UUID);
+  if (writeChar && !(writeChar->canWrite() || writeChar->canWriteNoResponse())) writeChar = nullptr;
+  if (!writeChar) {
+    writeChar = pSvc->getCharacteristic("FFEF");
+    if (writeChar && !(writeChar->canWrite() || writeChar->canWriteNoResponse())) writeChar = nullptr;
+  }
+  if (!writeChar) {
+    for (auto c : chars) {
+      if (c->canWrite() || c->canWriteNoResponse()) { writeChar = c; break; }
+    }
+  }
+  pWriteChar = writeChar ? writeChar : notifyChar;
+  Serial.print(F("Write char: "));
+  Serial.println(pWriteChar->getUUID().toString().c_str());
+  return true;
+}
 
 // ============================================================
 //  连接到服务器 (使用 advDevice)
@@ -185,40 +291,12 @@ bool connectToServer() {
   Serial.println(pClient->getPeerAddress().toString().c_str());
 
   pSvc = pClient->getService(BLE_SERVICE_UUID);
-  if (pSvc) {
-    // 枚举所有特性，分别查找 notify 和 write 特征
-    auto chars = pSvc->getCharacteristics(true);
-    for (auto c : chars) {
-      if (c->canNotify() && !pRemChar) {
-        pRemChar = c;
-        pRemChar->subscribe(true, notifyCB);
-        Serial.print(F("Subscribed notify: "));
-        Serial.println(c->getUUID().toString().c_str());
-      }
-      if ((c->canWrite() || c->canWriteNoResponse()) && !pWriteChar) {
-        pWriteChar = c;
-        Serial.print(F("Found write: "));
-        Serial.println(c->getUUID().toString().c_str());
-      }
-    }
-    // 备选: 按 UUID 查找
-    if (!pRemChar) {
-      pRemChar = pSvc->getCharacteristic("FFEC");
-      if (pRemChar && pRemChar->canNotify())
-        pRemChar->subscribe(true, notifyCB);
-    }
-    if (!pWriteChar) {
-      pWriteChar = pSvc->getCharacteristic("FFEF");
-      if (!pWriteChar && pRemChar && (pRemChar->canWrite() || pRemChar->canWriteNoResponse()))
-        pWriteChar = pRemChar;
-    }
-    if (!pRemChar) {
-      Serial.println(F("No notify characteristic found!"));
-      pClient->disconnect();
-      return false;
-    }
-  } else {
+  if (!pSvc) {
     Serial.println(F("Service FFE0 not found"));
+    pClient->disconnect();
+    return false;
+  }
+  if (!setupCharacteristics()) {
     pClient->disconnect();
     return false;
   }
@@ -315,74 +393,12 @@ bool nimble_connect_by_index(int index) {
   pSvc = pClient->getService(BLE_SERVICE_UUID);
   if (pSvc) {
     Serial.println(F("Service FFE0 found"));
-
-    // 枚举所有特性，分别查找 notify 和 write 特征
-    auto chars = pSvc->getCharacteristics(true);
-    Serial.print(F("Found "));
-    Serial.print(chars.size());
-    Serial.println(F(" characteristics:"));
-    for (auto c : chars) {
-        Serial.print(F("  "));
-        Serial.print(c->getUUID().toString().c_str());
-        Serial.print(F(" n=")); Serial.print(c->canNotify());
-        Serial.print(F(" r=")); Serial.print(c->canRead());
-        Serial.print(F(" w=")); Serial.print(c->canWrite());
-        Serial.print(F(" wn=")); Serial.println(c->canWriteNoResponse());
-
-        // 查找 notify 特征 (优先 FFEC，用于接收数据)
-        if (c->canNotify() && !pRemChar) {
-          std::string uuid = c->getUUID().toString();
-          // 优先匹配 FFEC，但如果是其他可通知特征也先用着
-          pRemChar = c;
-          if (pRemChar->subscribe(true, notifyCB)) {
-            Serial.print(F("  -> Subscribed notify: "));
-            Serial.println(uuid.c_str());
-          } else {
-            Serial.println(F("  -> Subscribe FAILED"));
-          }
-        }
-        // 查找 write 特征 (优先 FFEF，用于发送命令)
-        if ((c->canWrite() || c->canWriteNoResponse()) && !pWriteChar) {
-          pWriteChar = c;
-          Serial.print(F("  -> Found write: "));
-          Serial.println(c->getUUID().toString().c_str());
-        }
-      }
-
-    // 备选: 直接按 UUID 查找 FFEC (notify) 和 FFEF (write)
-    if (!pRemChar) {
-      pRemChar = pSvc->getCharacteristic("FFEC");
-      if (pRemChar && pRemChar->canNotify()) {
-        pRemChar->subscribe(true, notifyCB);
-        Serial.println(F("Subscribed to FFEC (fallback)"));
-      }
-    }
-    if (!pWriteChar) {
-      pWriteChar = pSvc->getCharacteristic("FFEF");
-      if (pWriteChar && (pWriteChar->canWrite() || pWriteChar->canWriteNoResponse())) {
-        Serial.println(F("Found write FFEF (fallback)"));
-      } else {
-        pWriteChar = nullptr;
-      }
-    }
-    // 如果实在找不到 write 特征，回退用 notify 特征
-    if (!pWriteChar) {
-      if (pRemChar && (pRemChar->canWrite() || pRemChar->canWriteNoResponse())) {
-        pWriteChar = pRemChar;
-        Serial.println(F("No dedicated write char, using notify char for write"));
-      } else {
-        Serial.println(F("WARNING: No write characteristic found! Commands may fail."));
-        pWriteChar = pRemChar;  // 最后尝试
-      }
-    }
-
-    if (!pRemChar) {
-      Serial.println(F("No notify characteristic found!"));
-      pClient->disconnect();
-      return false;
-    }
   } else {
     Serial.println(F("Service FFE0 not found"));
+    pClient->disconnect();
+    return false;
+  }
+  if (!setupCharacteristics()) {
     pClient->disconnect();
     return false;
   }
@@ -429,53 +445,15 @@ bool nimble_send(uint8_t *pData, uint16_t len) {
 // ============================================================
 //  WriteAddr 格式写入 (2字节值)
 //  Frame: AA C6 addr addr val_lo val_hi crc_lo crc_hi
+//  CRC 与状态帧相同 (CRC-16/IBM, 初值 0x7F3C, 多项式 0xA001),
+//  统一使用 fardriver_protocol.h 中已验证的 fdComputeCRC。
+//  (原实现在此复制了一份查表法, 表内有转录错误且 LO/HI 角色写反,
+//   会导致写参数命令校验和错误)
 // ============================================================
-static const uint8_t FD_CRC_HI_NIM[256] = {
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
-  0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
-  0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
-  0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
-  0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
-  0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
-  0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
-  0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
-  0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40
-};
-static const uint8_t FD_CRC_LO_NIM[256] = {
-  0x00,0xC0,0xC1,0x01,0xC3,0x03,0x02,0xC2,0xC6,0x06,0x07,0xC7,0x05,0xC5,0xC4,0x04,
-  0xCC,0x0C,0x0D,0xCD,0x0F,0xCF,0xCE,0x0E,0x0A,0xCA,0xCB,0x0B,0xC9,0x09,0x08,0xC8,
-  0xD8,0x18,0x19,0xD9,0x1B,0xDB,0xDA,0x1A,0x1E,0xDE,0xDF,0x1F,0xDD,0x1D,0x1C,0xDC,
-  0x14,0xD4,0xD5,0x15,0xD7,0x17,0x16,0xD6,0xD2,0x12,0x13,0xD3,0x11,0xD1,0xD0,0x10,
-  0xF0,0x30,0x31,0xF1,0x33,0xF3,0xF2,0x32,0x36,0xF6,0xF7,0x37,0xF5,0x35,0x34,0xF4,
-  0x3C,0xFC,0xFD,0x3D,0xFF,0x3F,0x3E,0xFE,0xFA,0x3A,0x3B,0xFB,0x39,0xF9,0xF8,0x38,
-  0x28,0xE8,0xE9,0x29,0xEB,0x2B,0x2A,0xEA,0xEE,0x2E,0x2F,0xEF,0x2D,0xED,0xEC,0x2C,
-  0xE4,0x24,0x25,0xE5,0x27,0xE7,0xE6,0x26,0x22,0xE2,0xE3,0x23,0xE1,0x21,0x20,0xE0,
-  0xA0,0x60,0x61,0xA1,0x63,0xA3,0xA2,0x62,0x66,0xA6,0xA7,0x67,0xA5,0x65,0x64,0xA4,
-  0x6C,0xAC,0xAD,0x6D,0xAF,0x6F,0x6E,0xAE,0xAA,0x6A,0x6B,0xAB,0x69,0xA9,0xA8,0x68,
-  0x78,0xB8,0xB9,0x79,0xBB,0x7B,0x7A,0xBA,0xBE,0x7E,0x7F,0xBF,0x7D,0xBD,0xBC,0x7C,
-  0xB4,0x74,0x75,0xB5,0x77,0xB7,0xB6,0x76,0x72,0xB2,0xB3,0x73,0xB1,0x71,0x70,0xB0,
-  0x50,0x90,0x91,0x51,0x93,0x53,0x52,0x92,0x96,0x56,0x57,0x97,0x55,0x95,0x94,0x54,
-  0x9C,0x5C,0x5D,0x9D,0x5F,0x9F,0x9E,0x5E,0x5A,0x9A,0x9B,0x5B,0x99,0x59,0x58,0x98,
-  0x88,0x48,0x49,0x89,0x4B,0x8B,0x8A,0x4A,0x4E,0x8E,0x8F,0x4F,0x8D,0x4D,0x4C,0x8C,
-  0x44,0x84,0x85,0x45,0x87,0x47,0x46,0x86,0x82,0x42,0x43,0x83,0x41,0x81,0x80,0x40
-};
-
 static void calcFDCRC(uint8_t *frame, uint8_t len) {
-  uint8_t a = 0x3C, b = 0x7F;
-  for (uint8_t i = 0; i < len; i++) {
-    uint8_t idx = a ^ frame[i];
-    a = b ^ FD_CRC_HI_NIM[idx];
-    b = FD_CRC_LO_NIM[idx];
-  }
-  frame[len] = a;
-  frame[len + 1] = b;
+  uint16_t crc = fdComputeCRC(frame, len);
+  frame[len] = (uint8_t)(crc & 0xFF);
+  frame[len + 1] = (uint8_t)(crc >> 8);
 }
 
 bool nimble_write_addr(uint8_t addr, uint16_t value) {

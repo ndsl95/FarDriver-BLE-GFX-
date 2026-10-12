@@ -77,4 +77,19 @@ void nimble_reset_notify_count(void);
 /** 获取 notify 计数 */
 int nimble_get_notify_count(void);
 
+/** notify 特征是否已订阅就绪 (数据通道已打开) */
+bool nimble_notify_ready(void);
+
+/** 写特征是否就绪 (命令通道已打开) */
+bool nimble_write_ready(void);
+
+/** 已收到的通知帧总数 (含长度异常帧) */
+uint32_t nimble_get_rx_total(void);
+
+/** 长度不是 16 字节的异常通知数 (控制器 AT 响应/其他数据) */
+uint32_t nimble_get_rx_badlen(void);
+
+/** 取最近一帧原始数据, buf 至少 16 字节; 返回长度, 0=尚未收到 */
+uint8_t nimble_get_last_frame(uint8_t *buf);
+
 #endif

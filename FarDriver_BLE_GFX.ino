@@ -27,8 +27,16 @@ uint8_t fdMemMap[512] = {0};
 static uint16_t throttle_min_adc = 4095;
 static uint16_t throttle_max_adc = 0;
 
+/* 校准值版本: 换了油门数据源就 +1, 让旧的校准值自动作废 (否则比例会对不上) */
+#define THROTTLE_CAL_VERSION  2
+
 // 从 NVS 读取上次保存的校准值 (setup 中调用)
 static void throttle_load_cal(void) {
+    if (preferences.getUChar("thrVer", 0) != THROTTLE_CAL_VERSION) {
+        throttle_min_adc = 65535; throttle_max_adc = 0;
+        preferences.putUChar("thrVer", THROTTLE_CAL_VERSION);
+        return;
+    }
     throttle_min_adc = preferences.getUShort("thrMin", 4095);
     throttle_max_adc = preferences.getUShort("thrMax", 0);
 }
@@ -82,10 +90,11 @@ ConnectionState conn_state = CS_SCANNING;
 static uint32_t scan_start_time = 0;
 #define SCAN_DURATION_MS  5000
 
-static uint32_t lastKeepAlive = 0;
-static bool     tried_open = false;
-static uint32_t no_data_since = 0;
-#define KEEPALIVE_INTERVAL_MS  3000
+static uint32_t connect_ms = 0;      // 本次连接建立时刻
+static uint32_t lastStreamCmdMs = 0; // 上次发送数据流启动/心跳帧的时刻
+/* 控制器需要持续(每 2s)收到启动帧才会上报状态帧 —— 与原版实现一致 */
+#define STREAM_CMD_INTERVAL_MS  BLE_KEEPALIVE_INTERVAL_MS   // 2000ms (config.h)
+#define NO_DATA_RECONNECT_MS    10000
 
 // 当前页面追踪
 typedef enum { PG_SCAN, PG_LIST, PG_DASH, PG_INFO } ActivePage;
@@ -105,7 +114,8 @@ static void fdSendCmd(uint8_t cmd, uint8_t sub, uint8_t v1, uint8_t v2) {
     frame[6] = frame[0] + frame[1] + frame[2] + frame[3] + frame[4] + frame[5];
     frame[7] = ~frame[6];
 
-    bool is_keepalive = (cmd == 0x13 && sub == 0x07 && v1 == 0x5F);
+    /* 周期性的启动/心跳帧不打印, 否则每 2 秒刷屏 */
+    bool is_keepalive = (cmd == 0x13 && sub == 0x07);
     if (!is_keepalive) {
         Serial.print(F("[CMD] 0x"));
         Serial.print(cmd, HEX);
@@ -119,8 +129,17 @@ static void fdSendCmd(uint8_t cmd, uint8_t sub, uint8_t v1, uint8_t v2) {
     }
 }
 
-static void fdOpen(void)   { fdSendCmd(0x13, 0x07, 0x01, 0xF1); }
-static void fdKeepAlive(void) { fdSendCmd(0x13, 0x07, 0x5F, 0x5F); }
+/* 启动并维持控制器数据流: AA 13 EC 07 01 F1 A2 5D
+ *
+ * fdSendCmd 生成的 8 字节命令与两个实测可用项目 (EKSR_Instrument 原版、
+ * bobecek79/ESP32-Fardriver-BLE-Reader 的 keep-alive) 完全一致:
+ * 控制器只有在持续收到这一帧时才会推送 16 字节状态帧, 所以连接成功后要
+ * 「立即发一次 + 之后每 2 秒重复」。
+ *
+ * 原实现把它当成兜底逻辑: 只在"5 秒内一帧通知都没收到"时补发一次, 而且
+ * 判定用的是单调递增的 notify 计数 (收到过任何通知就永远为真) —— 结果是
+ * 连接成功后启动帧几乎永远不会发出, 控制器自然一帧数据都不上报。 */
+static void fdStartStream(void) { fdSendCmd(0x13, 0x07, 0x01, 0xF1); }
 
 // ============================================================
 //  UI 回调: 连接设备 (按列表索引)
@@ -136,6 +155,12 @@ static void on_ui_connect(int sel) {
         conn_state = CS_CONNECTED;
         active_page = PG_DASH;
         uiShowDash();
+
+        /* 连接成功后立刻启动数据流 (与原版一致), 之后由 loop 每 2 秒维持 */
+        connect_ms = millis();
+        fdStartStream();
+        lastStreamCmdMs = millis();
+
         Serial.println(F("Connected!"));
     } else {
         Serial.println(F("Connect failed"));
@@ -176,8 +201,8 @@ static void on_ui_rescan(void) {
     Serial.println(F("Rescan"));
     uiScanClear();
     nimble_disconnect();
-    tried_open = false;
-    no_data_since = 0;
+    connect_ms = 0;
+    lastStreamCmdMs = 0;
     nimble_reset_notify_count();
 
     active_page = PG_SCAN;
@@ -193,8 +218,8 @@ static void on_ui_rescan(void) {
 static void on_ui_disconnect(void) {
     Serial.println(F("UI Disconnect"));
     nimble_disconnect();
-    tried_open = false;
-    no_data_since = 0;
+    connect_ms = 0;
+    lastStreamCmdMs = 0;
     nimble_reset_notify_count();
     delay(200);
 
@@ -207,62 +232,90 @@ static void on_ui_disconnect(void) {
 
 // ============================================================
 //  BLE notify 回调: 解析 FarDriver 帧
+//
+//  字段布局依据 jackhumbert/fardriver-controllers 的 fardriver.hpp
+//  (FardriverData 结构体, 小端), 并与实测帧 + 已验证读取器
+//  (bobecek79/ESP32-Fardriver-BLE-Reader) 三方核对一致:
+//
+//   地址    payload 偏移        含义                      换算
+//   0xE2    [0] bits2-3         档位                      bits + 1 → G3
+//           [2] / [3]           故障位组 1 / 组 2
+//           [6..7] int16 LE     MeasureSpeed (速度测量值)
+//   0xE8    [0..1] int16 LE     电池电压                  /10 → V
+//           [4..5] int16 LE     线电流                    /4  → A (负=回充)
+//           [10..11] int16 LE   ThrottleDepth (油门深度)
+//   0xD6    [10..11] int16 LE   控制器(MOS)温度            °C
+//   0xF4    [0..1] int16 LE     电机温度                   °C
+//           [3]                 电量 SOC                   %
+//
+//  两个必须注意的点 (也是原来"电压恒为 0"的根因):
+//  1) 同一地址会以多个 id 轮转上报 —— 0xE2 出现在 id 0/7/14/21/28..., 0xE8
+//     出现在 id 1/8/15/22...。原实现按 id 分派 (case 0/1/4/13), 只有 1/8 的
+//     相关帧会命中; 必须按"查表地址"分派。
+//  2) 所有多字节字段都是小端 —— 原实现按大端读电压, 84.7V 被读成 2022.7V,
+//     再被范围检查丢弃 → 屏幕恒显 0.0V; 电流/温度/档位也都取自错误字节。
 // ============================================================
 void message_handler(uint8_t *pData)
 {
     uint8_t id = pData[1] & 0x3F;
     if (id >= FD_MAX_ADDR_ID) return;
 
-    uint8_t *payload = &pData[2];
-    fdParseFrame(pData);
+    const uint8_t *payload = &pData[2];
+    uint8_t addr = fdParseFrame(pData);   // 同时写入 fdMemMap (信息页用)
+    if (addr == 0xFF) return;
 
-    switch (id) {
-        case 0:  // RPM, gear, current
-            ctr_data.gear = ((payload[2] >> 2) & 0x03) - 1;
-            if (ctr_data.gear > 2) ctr_data.gear = 3;
-            ctr_data.rawRpm = (int16_t)((payload[4] << 8) | payload[5]);
+    switch (addr) {
+        case 0xE2:  // 档位 / 故障位 / 速度测量值
+            ctr_data.gear = (uint8_t)(((payload[0] >> 2) & 0x03) + 1);
             ctr_data.fault_byte4 = payload[2];
             ctr_data.fault_byte5 = payload[3];
+            ctr_data.rawRpm = (int16_t)(((uint16_t)payload[7] << 8) | payload[6]);
+            break;
+
+        case 0xE8:  // 电池电压 / 线电流 / 油门深度
             {
-                float iq = (int16_t)((payload[8] << 8) | payload[9]) / 100.0f;
-                float id = (int16_t)((payload[10] << 8) | payload[11]) / 100.0f;
-                ctr_data.lineCurrent = sqrtf(iq * iq + id * id);
-                ctr_data.isRegen = (iq < 0) || (id < 0);
+                float v = (int16_t)(((uint16_t)payload[1] << 8) | payload[0]) / 10.0f;
+                if (v > 0.0f && v < 200.0f) ctr_data.voltage = v;
+
+                float a = (int16_t)(((uint16_t)payload[5] << 8) | payload[4]) / 4.0f;
+                if (a > -400.0f && a < 400.0f) {
+                    ctr_data.lineCurrent = a;
+                    ctr_data.isRegen = (a < 0.0f);
+                }
+
+                /* 油门深度: 负值/异常按 0 处理 (不能直接跳过, 否则松油门后
+                 * 会停留在上一次的数值上不下去) */
+                int16_t thr = (int16_t)(((uint16_t)payload[11] << 8) | payload[10]);
+                ctr_data.throttle = (thr > 0) ? (uint16_t)thr : 0;
             }
             break;
 
-        case 1:  // Voltage
+        case 0xD6:  // 控制器 (MOS) 温度
             {
-                float v = ((payload[0] << 8) | payload[1]) / 10.0f;
-                if (v >= 0 && v <= 200.0f) ctr_data.voltage = v;
+                int t = (int16_t)(((uint16_t)payload[11] << 8) | payload[10]);
+                if (t > -40 && t < 200) ctr_data.controller_temp = t;
             }
             break;
 
-        case 4:  // Controller temp
+        case 0xF4:  // 电机温度 / 电量
             {
-                int t = (int8_t)payload[2];
-                if (t > -40 && t < 150) ctr_data.controller_temp = t;
-            }
-            break;
-
-        case 13:  // Motor temp + throttle
-            ctr_data.throttle = ((uint16_t)payload[2] << 8) | payload[3];
-            {
-                int t = (int8_t)payload[0];
+                int t = (int16_t)(((uint16_t)payload[1] << 8) | payload[0]);
                 if (t > -40 && t < 250) ctr_data.motor_temp = t;
+                if (payload[3] <= 100) ctr_data.soc = payload[3];
             }
+            break;
+
+        default:
             break;
     }
 
-    // 浮点换算
-    float pole_pairs = fdPolePairs() > 0 ? (float)fdPolePairs() : 20.0f;
+    // 速度换算: 测量值 × 4 / 极对数 = 轮转速, 再按轮胎周长折算 km/h
     int16_t rpm_pos = (ctr_data.rawRpm < 0) ? 0 : ctr_data.rawRpm;
-    ctr_data.rpm = rpm_pos * 4.0f / pole_pairs;
+    ctr_data.rpm = rpm_pos * 4.0f / (float)MOTOR_POLE_PAIRS;
     ctr_data.speed = ctr_data.rpm * WHEEL_CIRCUMFERENCE_M * 60.0f / 1000.0f;
 
-    if (ctr_data.voltage > 0) {
-        ctr_data.power = -ctr_data.lineCurrent * ctr_data.voltage / 1000.0f;
-    }
+    // 功率 (kW): 正 = 放电, 负 = 回充 (与 UI 配色约定一致)
+    ctr_data.power = ctr_data.voltage * ctr_data.lineCurrent / 1000.0f;
 }
 
 // ============================================================
@@ -280,7 +333,12 @@ static void update_ui_data(void) {
     d.mot      = (int8_t)ctr_data.motor_temp;
     d.gear     = ctr_data.gear;
     d.thr      = (uint8_t)constrain((int)throttle_to_pct(ctr_data.throttle), 0, 100);
-    d.bat      = (uint8_t)constrain(map((int)(ctr_data.voltage * 10), 600, 1000, 0, 100), 0, 100);
+    /* 电量: 优先用控制器上报的 SOC (0xF4 帧 payload[3]); 无效时按电压粗估 */
+    if (ctr_data.soc > 0 && ctr_data.soc <= 100) {
+        d.bat = ctr_data.soc;
+    } else {
+        d.bat = (uint8_t)constrain(map((int)(ctr_data.voltage * 10), 600, 1000, 0, 100), 0, 100);
+    }
 
     if (active_page == PG_DASH) {
         uiDashUpdate(&d);
@@ -301,7 +359,7 @@ static void update_ui_data(void) {
         CfgInfo ic;
         ic.ratedV  = fdRatedVoltage();
         ic.ratedKW = fdRatedPower() / 1000.0f;
-        ic.pole    = fdPolePairs();
+        ic.pole    = MOTOR_POLE_PAIRS;
         ic.maxRpm  = fdMaxSpeed();
         snprintf(ic.hw, sizeof(ic.hw), "%c", fdHardwareVer());
         snprintf(ic.sw, sizeof(ic.sw), "%c.%d",
@@ -444,7 +502,53 @@ static void diagTask(void *arg) {
         Serial.print(F(" fc="));
         Serial.print(dFC);
         Serial.print(F(" dc="));
-        Serial.println(dDrift);
+        Serial.print(dDrift);
+
+        /* ---- FarDriver 数据流诊断 (定位"连接后没有数据") ----
+         * fd_rx   : 累计收到的 BLE 通知帧数
+         * badlen  : 长度 != 16 的通知数
+         * drx     : 本 5 秒窗口新增帧数 (恒为 0 = 一帧都没上来)
+         * last{..}: 最近一帧的 id / 查表地址 / CRC 校验结果 / 原始 hex
+         *           —— crc=BAD 说明收到的帧不完整或映射有误 */
+        {
+            static uint32_t lastRxTotal = 0;
+            static uint8_t  lastFid = 0xFF;
+            uint32_t rx = nimble_get_rx_total();
+            Serial.print(F(" fd_rx="));
+            Serial.print(rx);
+            Serial.print(F(" badlen="));
+            Serial.print(nimble_get_rx_badlen());
+            Serial.print(F(" drx="));
+            Serial.print(rx - lastRxTotal);
+            lastRxTotal = rx;
+
+            uint8_t frame[16];
+            uint8_t flen = nimble_get_last_frame(frame);
+            if (flen == 16) {
+                uint8_t fid = frame[1] & 0x3F;
+                Serial.print(F(" last{id="));
+                Serial.print(fid);
+                if (fid < FD_MAX_ADDR_ID) {
+                    Serial.print(F(" addr=0x"));
+                    Serial.print(FD_FLASH_ADDR[fid], HEX);
+                }
+                Serial.print(F(" len=16 crc="));
+                Serial.print(fdVerifyCRC(frame) ? F("OK") : F("BAD"));
+                Serial.print(F(" hex="));
+                for (uint8_t i = 0; i < 16; i++) {
+                    if (frame[i] < 0x10) Serial.print('0');
+                    Serial.print(frame[i], HEX);
+                    Serial.print(' ');
+                }
+                Serial.print(F("} "));
+                lastFid = fid;
+            } else if (lastFid != 0xFF) {
+                Serial.print(F(" last{len="));
+                Serial.print(flen);
+                Serial.print(F("} "));
+            }
+        }
+        Serial.println();
         touchPanel.resetMaxW();   // 窗口峰值已打印, 清零进入下个窗口
     }
 }
@@ -540,33 +644,27 @@ void loop()
                 break;
             }
 
-            // 数据流看门狗: 已收到过数据但 10 秒无新通知 → 数据流故障, 强制重连
-            // (修复: 原 notify_count 计数单调递增永不减少, 数据停止后无法检测)
-            if (nimble_get_last_notify_ms() > 0 &&
-                millis() - nimble_get_last_notify_ms() > 10000) {
-                Serial.println(F("[WD] No data 10s, force reconnect"));
-                nimble_disconnect();
-                conn_state = CS_DISCONNECTED;
-                break;
-            }
-
-            // 数据流管理
+            // ============================================================
+            //  数据流管理
+            //  1) 每 2 秒重复发送启动/心跳帧 (AA 13 EC 07 01 F1 ...):
+            //     控制器靠它维持 16 字节状态帧的上报, 连接后必须持续发送
+            //  2) 看门狗: 连接后 10 秒内一帧都没收到, 或收到过又静默 10 秒
+            //     → 判定数据流未建立, 强制重连
+            // ============================================================
             {
-                int cur = nimble_get_notify_count();
-                if (cur > 0) {
-                    no_data_since = 0;
-                } else if (no_data_since == 0) {
-                    no_data_since = millis();
+                uint32_t nm = nimble_get_last_notify_ms();
+                bool streaming = (nm > 0) && (millis() - nm <= NO_DATA_RECONNECT_MS);
+
+                if (!streaming && (millis() - connect_ms > NO_DATA_RECONNECT_MS)) {
+                    Serial.println(F("[WD] No data 10s, force reconnect"));
+                    nimble_disconnect();
+                    conn_state = CS_DISCONNECTED;
+                    break;
                 }
 
-                if (!tried_open && no_data_since > 0 && millis() - no_data_since > 5000) {
-                    tried_open = true;
-                    Serial.println(F("[FD] Trying Open..."));
-                    fdOpen();
-                    lastKeepAlive = millis();
-                } else if (tried_open && millis() - lastKeepAlive >= KEEPALIVE_INTERVAL_MS) {
-                    lastKeepAlive = millis();
-                    fdKeepAlive();
+                if (millis() - lastStreamCmdMs >= STREAM_CMD_INTERVAL_MS) {
+                    lastStreamCmdMs = millis();
+                    fdStartStream();
                 }
             }
 
@@ -583,8 +681,8 @@ void loop()
         case CS_DISCONNECTED:
             Serial.println(F("Disconnected, rescanning..."));
             nimble_disconnect();
-            tried_open = false;
-            no_data_since = 0;
+            connect_ms = 0;
+            lastStreamCmdMs = 0;
             nimble_reset_notify_count();
             delay(300);
 
